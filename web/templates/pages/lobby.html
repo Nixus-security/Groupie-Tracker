@@ -1,0 +1,106 @@
+{{template "base.html" .}}
+
+{{define "title"}}Lobby - Music Platform{{end}}
+
+{{define "styles"}}
+<link rel="stylesheet" href="/static/css/main.css">
+{{end}}
+
+{{define "content"}}
+<div class="lobby-container">
+    <div class="lobby-header">
+        <h1>🎮 Lobby</h1>
+        <p>Créez une salle ou rejoignez vos amis</p>
+    </div>
+
+    <div class="lobby-actions">
+        <div class="action-card create-room">
+            <h2>Créer une salle</h2>
+            <form action="/rooms/create" method="POST" class="create-form">
+                <div class="form-group">
+                    <label>Type de jeu</label>
+                    <div class="game-select">
+                        <label class="game-option">
+                            <input type="radio" name="game_type" value="blindtest" checked>
+                            <span class="game-option-content">
+                                <span class="game-icon">🎵</span>
+                                <span class="game-name">Blind Test</span>
+                            </span>
+                        </label>
+                        <label class="game-option">
+                            <input type="radio" name="game_type" value="petitbac">
+                            <span class="game-option-content">
+                                <span class="game-icon">🎼</span>
+                                <span class="game-name">Petit Bac</span>
+                            </span>
+                        </label>
+                    </div>
+                </div>
+                <button type="submit" class="btn btn-primary btn-block">Créer la salle</button>
+            </form>
+        </div>
+
+        <div class="action-card join-room">
+            <h2>Rejoindre une salle</h2>
+            <form action="/rooms/join" method="POST" class="join-form">
+                <div class="form-group">
+                    <label for="code">Code de la salle</label>
+                    <input 
+                        type="text" 
+                        id="code" 
+                        name="code" 
+                        placeholder="Ex: ABC123"
+                        maxlength="6"
+                        required
+                    >
+                </div>
+                <button type="submit" class="btn btn-primary btn-block">Rejoindre</button>
+            </form>
+        </div>
+    </div>
+
+    <div class="rooms-section">
+        <h2>Salles disponibles</h2>
+        
+        <div class="rooms-filter">
+            <a href="/lobby" class="filter-btn {{if not .GameFilter}}active{{end}}">Toutes</a>
+            <a href="/lobby?game=blindtest" class="filter-btn {{if eq .GameFilter "blindtest"}}active{{end}}">🎵 Blind Test</a>
+            <a href="/lobby?game=petitbac" class="filter-btn {{if eq .GameFilter "petitbac"}}active{{end}}">🎼 Petit Bac</a>
+        </div>
+
+        {{if .Rooms}}
+        <div class="rooms-list">
+            {{range .Rooms}}
+            <div class="room-card">
+                <div class="room-info">
+                    <span class="room-type">
+                        {{if eq .GameType "blindtest"}}🎵 Blind Test{{else}}🎼 Petit Bac{{end}}
+                    </span>
+                    <span class="room-code">{{.Code}}</span>
+                    <span class="room-players">{{.Config}}</span>
+                    <span class="room-status status-{{.Status}}">
+                        {{if eq .Status "waiting"}}En attente{{else}}En cours{{end}}
+                    </span>
+                </div>
+                {{if eq .Status "waiting"}}
+                <form action="/rooms/join" method="POST">
+                    <input type="hidden" name="code" value="{{.Code}}">
+                    <button type="submit" class="btn btn-outline btn-sm">Rejoindre</button>
+                </form>
+                {{end}}
+            </div>
+            {{end}}
+        </div>
+        {{else}}
+        <div class="no-rooms">
+            <p>Aucune salle disponible pour le moment</p>
+            <p>Créez-en une pour commencer à jouer !</p>
+        </div>
+        {{end}}
+    </div>
+</div>
+{{end}}
+
+{{define "scripts"}}
+<script src="/static/js/animations.js"></script>
+{{end}}

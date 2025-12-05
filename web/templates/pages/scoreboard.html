@@ -1,0 +1,160 @@
+{{template "base.html" .}}
+
+{{define "title"}}Scoreboard - Music Platform{{end}}
+
+{{define "styles"}}
+<link rel="stylesheet" href="/static/css/scoreboard.css">
+{{end}}
+
+{{define "content"}}
+<div class="scoreboard-container">
+    <div class="scoreboard-header">
+        <div class="game-type-badge">
+            {{if eq .Game.GameType "blindtest"}}
+            <span class="badge-icon">🎵</span>
+            <span class="badge-text">Blind Test</span>
+            {{else}}
+            <span class="badge-icon">🎼</span>
+            <span class="badge-text">Petit Bac</span>
+            {{end}}
+        </div>
+        
+        <h1>
+            {{if .IsFinished}}
+            🏆 Résultats Finaux
+            {{else}}
+            📊 Scores en cours
+            {{end}}
+        </h1>
+        
+        <p class="room-info">Salle: {{.Room.Code}}</p>
+    </div>
+
+    <div class="scoreboard-content">
+        {{if .IsFinished}}
+        <div class="podium">
+            {{range $index, $entry := .Scoreboard}}
+            {{if lt $index 3}}
+            <div class="podium-place place-{{add $index 1}}">
+                <div class="podium-medal">
+                    {{if eq $index 0}}🥇{{else if eq $index 1}}🥈{{else}}🥉{{end}}
+                </div>
+                <div class="podium-player">{{$entry.Pseudo}}</div>
+                <div class="podium-score">{{$entry.TotalScore}} pts</div>
+                <div class="podium-block"></div>
+            </div>
+            {{end}}
+            {{end}}
+        </div>
+        {{end}}
+
+        <div class="scores-table">
+            <table>
+                <thead>
+                    <tr>
+                        <th class="col-rank">Rang</th>
+                        <th class="col-player">Joueur</th>
+                        <th class="col-score">Score</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    {{range .Scoreboard}}
+                    <tr class="{{if eq .Rank 1}}first-place{{else if eq .Rank 2}}second-place{{else if eq .Rank 3}}third-place{{end}}">
+                        <td class="col-rank">
+                            <span class="rank-number">{{.Rank}}</span>
+                            {{if eq .Rank 1}}🥇{{else if eq .Rank 2}}🥈{{else if eq .Rank 3}}🥉{{end}}
+                        </td>
+                        <td class="col-player">{{.Pseudo}}</td>
+                        <td class="col-score">{{.TotalScore}} pts</td>
+                    </tr>
+                    {{end}}
+                </tbody>
+            </table>
+        </div>
+    </div>
+
+    <div class="scoreboard-actions">
+        {{if .IsFinished}}
+        <a href="/lobby" class="btn btn-primary btn-lg">Retour au Lobby</a>
+        <a href="/room/{{.Room.Code}}" class="btn btn-outline btn-lg">Rejouer</a>
+        {{else}}
+        <p class="live-indicator">
+            <span class="live-dot"></span>
+            Scores en direct
+        </p>
+        {{end}}
+    </div>
+</div>
+
+{{if .IsFinished}}
+<div class="confetti-container" id="confetti"></div>
+{{end}}
+{{end}}
+
+{{define "scripts"}}
+<link rel="stylesheet" href="/static/css/scoreboard.css">
+{{if not .IsFinished}}
+<div id="gameData" 
+    data-room-code="{{.Room.Code}}" 
+    data-game-id="{{.Game.ID}}"
+    style="display:none;">
+</div>
+<script src="/static/js/websocket.js"></script>
+<script>
+    const gameData = document.getElementById('gameData');
+    const roomCode = gameData.dataset.roomCode;
+    const gameId = parseInt(gameData.dataset.gameId);
+
+    initWebSocket(roomCode);
+
+    function onWebSocketMessage(msg) {
+        if (msg.type === 'game_end') {
+            location.reload();
+        }
+    }
+
+    setInterval(function() {
+        fetch('/api/scoreboard/' + gameId)
+            .then(function(res) { return res.json(); })
+            .then(function(data) {
+                updateScoreboard(data);
+            });
+    }, 3000);
+
+    function updateScoreboard(data) {
+        if (data.entries) {
+            const tbody = document.querySelector('.scores-table tbody');
+            tbody.innerHTML = '';
+            
+            data.entries.forEach(function(entry) {
+                const tr = document.createElement('tr');
+                let rankClass = '';
+                if (entry.rank === 1) rankClass = 'first-place';
+                else if (entry.rank === 2) rankClass = 'second-place';
+                else if (entry.rank === 3) rankClass = 'third-place';
+                tr.className = rankClass;
+
+                let medal = '';
+                if (entry.rank === 1) medal = '🥇';
+                else if (entry.rank === 2) medal = '🥈';
+                else if (entry.rank === 3) medal = '🥉';
+
+                tr.innerHTML = 
+                    '<td class="col-rank"><span class="rank-number">' + entry.rank + '</span>' + medal + '</td>' +
+                    '<td class="col-player">' + entry.pseudo + '</td>' +
+                    '<td class="col-score">' + entry.total_score + ' pts</td>';
+                
+                tbody.appendChild(tr);
+            });
+        }
+    }
+</script>
+{{else}}
+<script src="/static/js/animations.js"></script>
+<script>
+    if (typeof createConfetti === 'function') {
+        createConfetti();
+    }
+</script>
+{{end}}
+{{end}}
