@@ -1,0 +1,305 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>{{.Title}} - Groupie Tracker</title>
+    <link rel="stylesheet" href="/static/style.css">
+    <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>🎵</text></svg>">
+</head>
+<body>
+    <!-- Navigation -->
+    <nav>
+        <a href="/" class="logo">
+            <span>🎵</span>
+            Groupie-Tracker
+        </a>
+        <div class="nav-links">
+            <a href="/">Accueil</a>
+            <a href="/rooms">Salles</a>
+        </div>
+        <div class="user-info">
+            <span>Bienvenue,</span>
+            <span class="pseudo">{{.User.Pseudo}}</span>
+            <a href="/logout" class="btn btn-ghost btn-sm">Déconnexion</a>
+        </div>
+    </nav>
+
+    <div class="container container-sm">
+        <!-- Header de page -->
+        <header class="page-header">
+            <h1>➕ Créer une salle</h1>
+            <p class="text-muted">Configurez votre salle et invitez vos amis</p>
+        </header>
+
+        <div class="create-room-card">
+            <form method="POST" action="/room/create" class="create-form">
+                <!-- Nom de la salle -->
+                <div class="form-group">
+                    <label for="name">
+                        <span class="label-icon">📝</span>
+                        Nom de la salle
+                    </label>
+                    <input 
+                        type="text" 
+                        id="name" 
+                        name="name" 
+                        placeholder="Ex: Soirée Quiz Musical"
+                        required
+                        maxlength="50"
+                        autocomplete="off"
+                    >
+                    <small class="form-hint">Donnez un nom fun à votre salle !</small>
+                </div>
+
+                <!-- Type de jeu -->
+                <div class="form-group">
+                    <label>
+                        <span class="label-icon">🎮</span>
+                        Type de jeu
+                    </label>
+                    
+                    <div class="game-type-selector">
+                        <input type="radio" id="blindtest" name="game_type" value="blindtest" checked>
+                        <label for="blindtest" class="game-type-option">
+                            <div class="game-icon">🎧</div>
+                            <div class="game-info">
+                                <h3>Blind Test</h3>
+                                <p>Devinez les titres des chansons le plus vite possible !</p>
+                                <ul class="game-features">
+                                    <li>🎵 Extraits de 30 secondes</li>
+                                    <li>⏱️ 37 secondes par manche</li>
+                                    <li>🏆 Points selon la rapidité</li>
+                                </ul>
+                            </div>
+                        </label>
+
+                        <input type="radio" id="petitbac" name="game_type" value="petitbac">
+                        <label for="petitbac" class="game-type-option">
+                            <div class="game-icon">🎼</div>
+                            <div class="game-info">
+                                <h3>Petit Bac Musical</h3>
+                                <p>Trouvez des réponses musicales pour chaque lettre !</p>
+                                <ul class="game-features">
+                                    <li>🔤 Une lettre par manche</li>
+                                    <li>📝 5 catégories musicales</li>
+                                    <li>🗳️ Validation collective</li>
+                                </ul>
+                            </div>
+                        </label>
+                    </div>
+                </div>
+
+                <!-- Boutons d'action -->
+                <div class="form-actions">
+                    <a href="/rooms" class="btn btn-ghost">
+                        ← Retour
+                    </a>
+                    <button type="submit" class="btn btn-success btn-lg">
+                        <span>Créer la salle</span>
+                        <span class="btn-arrow">→</span>
+                    </button>
+                </div>
+            </form>
+        </div>
+
+        <!-- Info box -->
+        <div class="info-box">
+            <span class="info-icon">💡</span>
+            <div class="info-content">
+                <h4>Comment ça marche ?</h4>
+                <ol>
+                    <li>Créez votre salle et obtenez un code unique</li>
+                    <li>Partagez le code avec vos amis</li>
+                    <li>Une fois tout le monde prêt, lancez la partie !</li>
+                </ol>
+            </div>
+        </div>
+    </div>
+
+    <style>
+        .page-header {
+            text-align: center;
+            padding: 2rem 0;
+        }
+
+        .create-room-card {
+            background: rgba(255, 255, 255, 0.05);
+            border: 1px solid rgba(255, 255, 255, 0.1);
+            border-radius: var(--radius-xl);
+            padding: 2rem;
+            margin-bottom: 2rem;
+        }
+
+        .create-form {
+            display: flex;
+            flex-direction: column;
+            gap: 1.5rem;
+        }
+
+        .label-icon {
+            margin-right: 0.5rem;
+        }
+
+        .form-hint {
+            display: block;
+            margin-top: 0.25rem;
+            font-size: 0.75rem;
+            color: var(--gray);
+        }
+
+        /* Sélecteur de type de jeu */
+        .game-type-selector {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(250px, 1fr));
+            gap: 1rem;
+        }
+
+        .game-type-selector input[type="radio"] {
+            display: none;
+        }
+
+        .game-type-option {
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            text-align: center;
+            padding: 1.5rem;
+            background: rgba(255, 255, 255, 0.03);
+            border: 2px solid rgba(255, 255, 255, 0.1);
+            border-radius: var(--radius-lg);
+            cursor: pointer;
+            transition: var(--transition);
+        }
+
+        .game-type-option:hover {
+            border-color: var(--primary);
+            background: rgba(108, 92, 231, 0.1);
+        }
+
+        .game-type-selector input[type="radio"]:checked + .game-type-option {
+            border-color: var(--primary);
+            background: rgba(108, 92, 231, 0.2);
+            box-shadow: 0 0 20px rgba(108, 92, 231, 0.3);
+        }
+
+        .game-icon {
+            font-size: 3rem;
+            margin-bottom: 1rem;
+        }
+
+        .game-info h3 {
+            margin-bottom: 0.5rem;
+            color: var(--light);
+        }
+
+        .game-info p {
+            font-size: 0.875rem;
+            color: var(--gray);
+            margin-bottom: 1rem;
+        }
+
+        .game-features {
+            list-style: none;
+            text-align: left;
+            font-size: 0.75rem;
+            color: var(--gray);
+        }
+
+        .game-features li {
+            padding: 0.25rem 0;
+        }
+
+        /* Actions */
+        .form-actions {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-top: 1rem;
+            padding-top: 1.5rem;
+            border-top: 1px solid rgba(255, 255, 255, 0.1);
+        }
+
+        .btn-arrow {
+            margin-left: 0.5rem;
+            transition: transform 0.3s ease;
+        }
+
+        .btn:hover .btn-arrow {
+            transform: translateX(5px);
+        }
+
+        /* Info box */
+        .info-box {
+            display: flex;
+            gap: 1rem;
+            padding: 1.5rem;
+            background: rgba(116, 185, 255, 0.1);
+            border: 1px solid var(--info);
+            border-radius: var(--radius-lg);
+        }
+
+        .info-icon {
+            font-size: 2rem;
+        }
+
+        .info-content h4 {
+            margin-bottom: 0.5rem;
+            color: var(--info);
+        }
+
+        .info-content ol {
+            margin: 0;
+            padding-left: 1.25rem;
+            color: var(--gray);
+            font-size: 0.875rem;
+        }
+
+        .info-content li {
+            padding: 0.25rem 0;
+        }
+
+        /* Animation */
+        .create-room-card {
+            animation: fadeInUp 0.5s ease;
+        }
+
+        /* Responsive */
+        @media (max-width: 600px) {
+            .game-type-selector {
+                grid-template-columns: 1fr;
+            }
+
+            .form-actions {
+                flex-direction: column-reverse;
+                gap: 1rem;
+            }
+
+            .form-actions .btn {
+                width: 100%;
+            }
+        }
+    </style>
+
+    <script>
+        // Animation au survol des options de jeu
+        document.querySelectorAll('.game-type-option').forEach(option => {
+            option.addEventListener('mouseenter', function() {
+                this.querySelector('.game-icon').style.transform = 'scale(1.1)';
+            });
+            option.addEventListener('mouseleave', function() {
+                this.querySelector('.game-icon').style.transform = '';
+            });
+        });
+
+        // Validation du formulaire
+        document.querySelector('.create-form').addEventListener('submit', function(e) {
+            const name = document.getElementById('name').value.trim();
+            if (name.length < 3) {
+                e.preventDefault();
+                alert('Le nom de la salle doit contenir au moins 3 caractères');
+            }
+        });
+    </script>
+</body>
+</html>

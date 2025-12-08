@@ -21,8 +21,6 @@ import (
 var (
 	ErrNoToken       = errors.New("pas de token Spotify valide")
 	ErrNoTracks      = errors.New("aucune piste trouvée")
-	ErrNoPreviewURL  = errors.New("pas d'URL de prévisualisation")
-	ErrPlaylistEmpty = errors.New("playlist vide")
 )
 
 // Config configuration du client Spotify
@@ -45,17 +43,14 @@ var PlaylistsByGenre = map[string][]string{
 	"Pop": {
 		"37i9dQZF1DXcBWIGoYBM5M", // Today's Top Hits
 		"37i9dQZF1DX0kbJZpiYdZl", // Hot Hits France
-		"37i9dQZF1DWUa8ZRTfalHk", // Pop Rising
 	},
 	"Rock": {
 		"37i9dQZF1DWXRqgorJj26U", // Rock Classics
 		"37i9dQZF1DX1lVhptIYRda", // Hot Hits Rock
-		"37i9dQZF1DWZryfp6NSvtz", // Rock This
 	},
 	"Rap": {
 		"37i9dQZF1DX0XUsuxWHRQd", // RapCaviar
 		"37i9dQZF1DWU4xkXueiKGW", // Rap France
-		"37i9dQZF1DX6GwdWRQMQpq", // Rap UK
 	},
 }
 
@@ -83,11 +78,7 @@ func GetClient() *Client {
 	return clientInstance
 }
 
-// ============================================================================
-// AUTHENTIFICATION
-// ============================================================================
-
-// Authenticate s'authentifie auprès de l'API Spotify (Client Credentials Flow)
+// Authenticate s'authentifie auprès de l'API Spotify
 func (c *Client) Authenticate() error {
 	c.mutex.Lock()
 	defer c.mutex.Unlock()
@@ -159,10 +150,6 @@ func (c *Client) getToken() (string, error) {
 	return c.accessToken, nil
 }
 
-// ============================================================================
-// API SPOTIFY
-// ============================================================================
-
 // GetPlaylistTracks récupère les pistes d'une playlist
 func (c *Client) GetPlaylistTracks(playlistID string, limit int) ([]*models.SpotifyTrack, error) {
 	token, err := c.getToken()
@@ -170,9 +157,9 @@ func (c *Client) GetPlaylistTracks(playlistID string, limit int) ([]*models.Spot
 		return nil, err
 	}
 
-	url := fmt.Sprintf("https://api.spotify.com/v1/playlists/%s/tracks?limit=%d&fields=items(track(id,name,artists,album,preview_url))", playlistID, limit)
+	apiURL := fmt.Sprintf("https://api.spotify.com/v1/playlists/%s/tracks?limit=%d&fields=items(track(id,name,artists,album,preview_url))", playlistID, limit)
 
-	req, err := http.NewRequest("GET", url, nil)
+	req, err := http.NewRequest("GET", apiURL, nil)
 	if err != nil {
 		return nil, err
 	}
@@ -281,81 +268,6 @@ func (c *Client) GetRandomTracksForBlindTest(genre string, count int) ([]*models
 	}
 
 	return allTracks[:count], nil
-}
-
-// SearchTrack recherche une piste par nom
-func (c *Client) SearchTrack(query string) ([]*models.SpotifyTrack, error) {
-	token, err := c.getToken()
-	if err != nil {
-		return nil, err
-	}
-
-	encodedQuery := url.QueryEscape(query)
-	apiURL := fmt.Sprintf("https://api.spotify.com/v1/search?q=%s&type=track&limit=10", encodedQuery)
-
-	req, err := http.NewRequest("GET", apiURL, nil)
-	if err != nil {
-		return nil, err
-	}
-	req.Header.Set("Authorization", "Bearer "+token)
-
-	resp, err := c.httpClient.Do(req)
-	if err != nil {
-		return nil, err
-	}
-	defer resp.Body.Close()
-
-	if resp.StatusCode != http.StatusOK {
-		body, _ := io.ReadAll(resp.Body)
-		return nil, fmt.Errorf("erreur recherche Spotify: %s - %s", resp.Status, string(body))
-	}
-
-	var result struct {
-		Tracks struct {
-			Items []struct {
-				ID      string `json:"id"`
-				Name    string `json:"name"`
-				Artists []struct {
-					Name string `json:"name"`
-				} `json:"artists"`
-				Album struct {
-					Name   string `json:"name"`
-					Images []struct {
-						URL string `json:"url"`
-					} `json:"images"`
-				} `json:"album"`
-				PreviewURL string `json:"preview_url"`
-			} `json:"items"`
-		} `json:"tracks"`
-	}
-
-	if err := json.NewDecoder(resp.Body).Decode(&result); err != nil {
-		return nil, err
-	}
-
-	var tracks []*models.SpotifyTrack
-	for _, item := range result.Tracks.Items {
-		artistNames := make([]string, len(item.Artists))
-		for i, a := range item.Artists {
-			artistNames[i] = a.Name
-		}
-
-		imageURL := ""
-		if len(item.Album.Images) > 0 {
-			imageURL = item.Album.Images[0].URL
-		}
-
-		tracks = append(tracks, &models.SpotifyTrack{
-			ID:         item.ID,
-			Name:       item.Name,
-			Artist:     strings.Join(artistNames, ", "),
-			Album:      item.Album.Name,
-			PreviewURL: item.PreviewURL,
-			ImageURL:   imageURL,
-		})
-	}
-
-	return tracks, nil
 }
 
 // GetAvailableGenres retourne les genres disponibles

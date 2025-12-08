@@ -19,8 +19,24 @@ type Handler struct {
 
 // NewHandler crée une nouvelle instance du handler
 func NewHandler(templatesDir string) *Handler {
+	// Fonctions personnalisées pour les templates
+	funcMap := template.FuncMap{
+		"slice": func(s string, start, end int) string {
+			if start >= len(s) {
+				return ""
+			}
+			if end > len(s) {
+				end = len(s)
+			}
+			return s[start:end]
+		},
+		"eq": func(a, b interface{}) bool {
+			return a == b
+		},
+	}
+
 	// Charger les templates
-	tmpl, err := template.ParseGlob(filepath.Join(templatesDir, "*.html"))
+	tmpl, err := template.New("").Funcs(funcMap).ParseGlob(filepath.Join(templatesDir, "*.html"))
 	if err != nil {
 		log.Printf("⚠️ Erreur chargement templates auth: %v", err)
 	}
@@ -62,10 +78,14 @@ func (h *Handler) RegisterPage(w http.ResponseWriter, r *http.Request) {
 		"Error": r.URL.Query().Get("error"),
 	}
 
+	w.Header().Set("Content-Type", "text/html; charset=utf-8")
+	
 	if h.templates != nil {
-		h.templates.ExecuteTemplate(w, "register.html", data)
+		if err := h.templates.ExecuteTemplate(w, "register.html", data); err != nil {
+			log.Printf("❌ Erreur template register: %v", err)
+			h.renderBasicRegisterPage(w, data)
+		}
 	} else {
-		// Template de secours
 		h.renderBasicRegisterPage(w, data)
 	}
 }
@@ -83,8 +103,13 @@ func (h *Handler) LoginPage(w http.ResponseWriter, r *http.Request) {
 		"Redirect": r.URL.Query().Get("redirect"),
 	}
 
+	w.Header().Set("Content-Type", "text/html; charset=utf-8")
+	
 	if h.templates != nil {
-		h.templates.ExecuteTemplate(w, "login.html", data)
+		if err := h.templates.ExecuteTemplate(w, "login.html", data); err != nil {
+			log.Printf("❌ Erreur template login: %v", err)
+			h.renderBasicLoginPage(w, data)
+		}
 	} else {
 		h.renderBasicLoginPage(w, data)
 	}
@@ -108,7 +133,12 @@ func (h *Handler) handleRegisterForm(w http.ResponseWriter, r *http.Request) {
 	pseudo := r.FormValue("pseudo")
 	email := r.FormValue("email")
 	password := r.FormValue("password")
-	confirmPassword := r.FormValue("confirm_password")
+	confirmPassword := r.FormValue("confirmPassword")
+	
+	// Support pour les deux noms de champ possibles
+	if confirmPassword == "" {
+		confirmPassword = r.FormValue("confirm_password")
+	}
 
 	// Vérifier que les mots de passe correspondent
 	if password != confirmPassword {
@@ -333,29 +363,39 @@ func (h *Handler) renderBasicRegisterPage(w http.ResponseWriter, data map[string
     <link rel="stylesheet" href="/static/css/style.css">
 </head>
 <body>
-    <div class="auth-container">
-        <h1>Inscription</h1>
-        {{if .Error}}<div class="error">{{.Error}}</div>{{end}}
-        <form method="POST" action="/register">
-            <div class="form-group">
-                <label for="pseudo">Pseudo (avec majuscule)</label>
-                <input type="text" id="pseudo" name="pseudo" required>
+    <div class="auth-page">
+        <div class="auth-container">
+            <div class="auth-card">
+                <div class="auth-logo">
+                    <span class="logo-icon">🎶</span>
+                    <h1>Groupie Tracker</h1>
+                    <p>Créer votre compte</p>
+                </div>
+                {{if .Error}}<div class="alert alert-danger">⚠️ {{.Error}}</div>{{end}}
+                <form method="POST" action="/register">
+                    <div class="form-group">
+                        <label class="form-label" for="pseudo">Pseudo (avec majuscule)</label>
+                        <input type="text" class="form-control" id="pseudo" name="pseudo" required minlength="3">
+                    </div>
+                    <div class="form-group">
+                        <label class="form-label" for="email">Email</label>
+                        <input type="email" class="form-control" id="email" name="email" required>
+                    </div>
+                    <div class="form-group">
+                        <label class="form-label" for="password">Mot de passe (min 12 car.)</label>
+                        <input type="password" class="form-control" id="password" name="password" required minlength="12">
+                    </div>
+                    <div class="form-group">
+                        <label class="form-label" for="confirmPassword">Confirmer le mot de passe</label>
+                        <input type="password" class="form-control" id="confirmPassword" name="confirmPassword" required>
+                    </div>
+                    <button type="submit" class="btn btn-primary btn-lg btn-block">S'inscrire</button>
+                </form>
+                <div class="auth-footer">
+                    <p>Déjà inscrit ? <a href="/login">Se connecter</a></p>
+                </div>
             </div>
-            <div class="form-group">
-                <label for="email">Email</label>
-                <input type="email" id="email" name="email" required>
-            </div>
-            <div class="form-group">
-                <label for="password">Mot de passe (min 12 car.)</label>
-                <input type="password" id="password" name="password" required>
-            </div>
-            <div class="form-group">
-                <label for="confirm_password">Confirmer le mot de passe</label>
-                <input type="password" id="confirm_password" name="confirm_password" required>
-            </div>
-            <button type="submit">S'inscrire</button>
-        </form>
-        <p>Déjà inscrit ? <a href="/login">Se connecter</a></p>
+        </div>
     </div>
 </body>
 </html>`
@@ -374,22 +414,32 @@ func (h *Handler) renderBasicLoginPage(w http.ResponseWriter, data map[string]in
     <link rel="stylesheet" href="/static/css/style.css">
 </head>
 <body>
-    <div class="auth-container">
-        <h1>Connexion</h1>
-        {{if .Error}}<div class="error">{{.Error}}</div>{{end}}
-        <form method="POST" action="/login">
-            <input type="hidden" name="redirect" value="{{.Redirect}}">
-            <div class="form-group">
-                <label for="identifier">Pseudo ou Email</label>
-                <input type="text" id="identifier" name="identifier" required>
+    <div class="auth-page">
+        <div class="auth-container">
+            <div class="auth-card">
+                <div class="auth-logo">
+                    <span class="logo-icon">🎵</span>
+                    <h1>Groupie Tracker</h1>
+                    <p>Connexion à votre compte</p>
+                </div>
+                {{if .Error}}<div class="alert alert-danger">⚠️ {{.Error}}</div>{{end}}
+                <form method="POST" action="/login">
+                    <input type="hidden" name="redirect" value="{{.Redirect}}">
+                    <div class="form-group">
+                        <label class="form-label" for="identifier">Pseudo ou Email</label>
+                        <input type="text" class="form-control" id="identifier" name="identifier" required>
+                    </div>
+                    <div class="form-group">
+                        <label class="form-label" for="password">Mot de passe</label>
+                        <input type="password" class="form-control" id="password" name="password" required>
+                    </div>
+                    <button type="submit" class="btn btn-primary btn-lg btn-block">Se connecter</button>
+                </form>
+                <div class="auth-footer">
+                    <p>Pas encore inscrit ? <a href="/register">S'inscrire</a></p>
+                </div>
             </div>
-            <div class="form-group">
-                <label for="password">Mot de passe</label>
-                <input type="password" id="password" name="password" required>
-            </div>
-            <button type="submit">Se connecter</button>
-        </form>
-        <p>Pas encore inscrit ? <a href="/register">S'inscrire</a></p>
+        </div>
     </div>
 </body>
 </html>`

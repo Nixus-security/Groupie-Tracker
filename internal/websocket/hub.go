@@ -208,29 +208,3 @@ func (h *Hub) GetRoomClients(roomCode string) int {
 	}
 	return 0
 }
-
-// IsUserConnected vérifie si un utilisateur est connecté à une salle
-func (h *Hub) IsUserConnected(roomCode string, userID int64) bool {
-	h.mutex.RLock()
-	defer h.mutex.RUnlock()
-
-	if room, exists := h.rooms[roomCode]; exists {
-		_, exists := room[userID]
-		return exists
-	}
-	return false
-}
-
-// GetConnectedUsers retourne la liste des utilisateurs connectés à une salle
-func (h *Hub) GetConnectedUsers(roomCode string) []int64 {
-	h.mutex.RLock()
-	defer h.mutex.RUnlock()
-
-	var users []int64
-	if room, exists := h.rooms[roomCode]; exists {
-		for userID := range room {
-			users = append(users, userID)
-		}
-	}
-	return users
-}

@@ -49,12 +49,6 @@ func (h *Handler) SetPetitBacHandler(handler func(*Client, *models.WSMessage)) {
 	h.petitBacHandler = handler
 }
 
-// RegisterRoutes enregistre la route WebSocket
-func (h *Handler) RegisterRoutes(mux *http.ServeMux, authMiddleware *auth.Middleware) {
-	// La route WebSocket nécessite une authentification
-	mux.Handle("/ws", authMiddleware.RequireAuth(http.HandlerFunc(h.HandleWebSocket)))
-}
-
 // HandleWebSocket gère les nouvelles connexions WebSocket
 func (h *Handler) HandleWebSocket(w http.ResponseWriter, r *http.Request) {
 	// Récupérer l'utilisateur depuis le contexte

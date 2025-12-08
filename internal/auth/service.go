@@ -138,22 +138,6 @@ func (s *Service) GetUserByID(id int64) (*models.User, error) {
 	return &user, nil
 }
 
-// GetUserByPseudo récupère un utilisateur par son pseudo
-func (s *Service) GetUserByPseudo(pseudo string) (*models.User, error) {
-	var user models.User
-	query := "SELECT id, pseudo, email, password_hash, created_at FROM users WHERE pseudo = ?"
-	err := s.db.QueryRow(query, pseudo).Scan(
-		&user.ID, &user.Pseudo, &user.Email, &user.PasswordHash, &user.CreatedAt,
-	)
-	if err == sql.ErrNoRows {
-		return nil, ErrUserNotFound
-	}
-	if err != nil {
-		return nil, err
-	}
-	return &user, nil
-}
-
 // ============================================================================
 // FONCTIONS DE VALIDATION
 // ============================================================================
@@ -180,7 +164,6 @@ func isValidEmail(email string) bool {
 }
 
 // isValidPasswordCNIL vérifie le mot de passe selon les recommandations CNIL
-// Minimum 12 caractères, 1 majuscule, 1 minuscule, 1 chiffre, 1 caractère spécial
 func isValidPasswordCNIL(password string) bool {
 	if len(password) < 12 {
 		return false

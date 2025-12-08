@@ -73,7 +73,7 @@ func (m *Manager) CreateRoom(hostID int64, hostPseudo string, name string, gameT
 	// Configuration par défaut selon le type de jeu
 	config := models.GameConfig{}
 	if gameType == models.GameTypeBlindTest {
-		config.Playlist = "Pop" // Par défaut
+		config.Playlist = "Pop"
 		config.TimePerRound = models.BlindTestDefaultTime
 	} else {
 		config.Categories = models.DefaultPetitBacCategories
@@ -118,19 +118,6 @@ func (m *Manager) GetRoom(code string) (*models.Room, error) {
 		return nil, ErrRoomNotFound
 	}
 	return room, nil
-}
-
-// GetRoomByID récupère une salle par son ID
-func (m *Manager) GetRoomByID(id string) (*models.Room, error) {
-	m.mutex.RLock()
-	defer m.mutex.RUnlock()
-
-	for _, room := range m.rooms {
-		if room.ID == id {
-			return room, nil
-		}
-	}
-	return nil, ErrRoomNotFound
 }
 
 // JoinRoom permet à un joueur de rejoindre une salle
@@ -292,48 +279,7 @@ func (m *Manager) EndGame(code string) error {
 	return nil
 }
 
-// ResetRoom remet la salle en attente
-func (m *Manager) ResetRoom(code string, userID int64) error {
-	room, err := m.GetRoom(code)
-	if err != nil {
-		return err
-	}
-
-	room.Mutex.Lock()
-	defer room.Mutex.Unlock()
-
-	if room.HostID != userID {
-		return ErrNotHost
-	}
-
-	room.Status = models.RoomStatusWaiting
-	
-	// Réinitialiser les scores et états des joueurs
-	for _, player := range room.Players {
-		player.Score = 0
-		player.IsReady = false
-	}
-
-	// Réinitialiser les lettres utilisées pour le Petit Bac
-	room.Config.UsedLetters = []string{}
-
-	return nil
-}
-
-// GetPlayerCount retourne le nombre de joueurs dans une salle
-func (m *Manager) GetPlayerCount(code string) int {
-	room, err := m.GetRoom(code)
-	if err != nil {
-		return 0
-	}
-
-	room.Mutex.RLock()
-	defer room.Mutex.RUnlock()
-
-	return len(room.Players)
-}
-
-// GetAllRooms retourne toutes les salles (pour debug/admin)
+// GetAllRooms retourne toutes les salles
 func (m *Manager) GetAllRooms() []*models.Room {
 	m.mutex.RLock()
 	defer m.mutex.RUnlock()
@@ -360,28 +306,13 @@ func (m *Manager) DisconnectPlayer(code string, userID int64) {
 	}
 }
 
-// UpdatePlayerScore met à jour le score d'un joueur
-func (m *Manager) UpdatePlayerScore(code string, userID int64, points int) {
-	room, err := m.GetRoom(code)
-	if err != nil {
-		return
-	}
-
-	room.Mutex.Lock()
-	defer room.Mutex.Unlock()
-
-	if player, exists := room.Players[userID]; exists {
-		player.Score += points
-	}
-}
-
 // ============================================================================
 // FONCTIONS UTILITAIRES
 // ============================================================================
 
 // generateUniqueCode génère un code de salle unique
 func (m *Manager) generateUniqueCode() string {
-	const charset = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789" // Sans I, O, 0, 1 pour éviter confusion
+	const charset = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789"
 	for {
 		code := make([]byte, RoomCodeLength)
 		rand.Read(code)

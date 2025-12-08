@@ -1,0 +1,228 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>{{.Title}} - Groupie Tracker</title>
+    <link rel="stylesheet" href="/static/style.css">
+</head>
+<body>
+    <!-- Navigation -->
+    <nav class="navbar">
+        <a href="/" class="navbar-brand">
+            <span class="icon">🎵</span>
+            <span>Groupie Tracker</span>
+        </a>
+        
+        <ul class="navbar-nav">
+            <li><a href="/" class="active">Accueil</a></li>
+            <li><a href="/rooms">Salles</a></li>
+        </ul>
+
+        <div class="navbar-user">
+            {{if .User}}
+            <div class="user-info">
+                <div class="avatar">{{slice .User.Pseudo 0 1}}</div>
+                <span>{{.User.Pseudo}}</span>
+            </div>
+            <a href="/logout" class="btn btn-secondary btn-sm">Déconnexion</a>
+            {{else}}
+            <a href="/login" class="btn btn-primary btn-sm">Connexion</a>
+            {{end}}
+        </div>
+    </nav>
+
+    <!-- Contenu principal -->
+    <div class="container">
+        <!-- En-tête -->
+        <div class="rooms-header">
+            <h1>🎮 Salles de jeu</h1>
+            <div class="rooms-actions">
+                <button class="btn btn-secondary" onclick="showJoinModal()">
+                    <span>🔑</span>
+                    <span>Rejoindre avec code</span>
+                </button>
+                <a href="/room/create" class="btn btn-primary">
+                    <span>➕</span>
+                    <span>Créer une salle</span>
+                </a>
+            </div>
+        </div>
+
+        <!-- Filtres -->
+        <div class="rooms-filters">
+            <button class="filter-btn active" data-filter="all">Tous les jeux</button>
+            <button class="filter-btn" data-filter="blindtest">🎧 Blind Test</button>
+            <button class="filter-btn" data-filter="petitbac">🔤 Petit Bac Musical</button>
+            <button class="filter-btn" data-filter="waiting">⏳ En attente</button>
+        </div>
+
+        <!-- Grille des salles -->
+        <div class="rooms-grid" id="roomsGrid">
+            {{if .Rooms}}
+                {{range .Rooms}}
+                <div class="card room-card" data-game="{{.GameType}}" data-status="{{.Status}}">
+                    <div class="card-header">
+                        <h3 class="card-title">{{.Name}}</h3>
+                        <span class="badge badge-{{if eq .GameType "blindtest"}}primary{{else}}secondary{{end}}">
+                            {{if eq .GameType "blindtest"}}🎧 Blind Test{{else}}🔤 Petit Bac{{end}}
+                        </span>
+                    </div>
+                    <div class="card-body">
+                        <div class="room-info">
+                            <span class="room-code">{{.Code}}</span>
+                            <span class="room-players">
+                                <span>👥</span>
+                                <span>{{.PlayerCount}}/8</span>
+                            </span>
+                        </div>
+                    </div>
+                    <div class="card-footer">
+                        <div class="d-flex justify-between align-center">
+                            <span class="badge badge-status {{.Status}}">
+                                {{if eq .Status "waiting"}}En attente{{else if eq .Status "playing"}}En cours{{else}}Terminée{{end}}
+                            </span>
+                            {{if eq .Status "waiting"}}
+                            <a href="/room/{{.Code}}" class="btn btn-primary btn-sm">Rejoindre</a>
+                            {{else}}
+                            <span class="btn btn-secondary btn-sm" disabled>Partie en cours</span>
+                            {{end}}
+                        </div>
+                    </div>
+                </div>
+                {{end}}
+            {{else}}
+            <div class="rooms-empty" id="emptyState">
+                <div class="empty-icon">🎵</div>
+                <h3>Aucune salle disponible</h3>
+                <p>Créez une nouvelle salle pour commencer à jouer !</p>
+                <a href="/room/create" class="btn btn-primary mt-lg">Créer une salle</a>
+            </div>
+            {{end}}
+        </div>
+
+        <!-- Info rafraîchissement -->
+        <div class="text-center text-muted mt-lg">
+            <small>🔄 Les salles sont actualisées automatiquement toutes les 10 secondes</small>
+        </div>
+    </div>
+
+    <!-- Modal rejoindre avec code -->
+    <div class="modal-overlay" id="joinModal">
+        <div class="modal">
+            <div class="modal-header">
+                <h2 class="modal-title">🔑 Rejoindre une salle</h2>
+                <button class="modal-close" onclick="hideJoinModal()">✕</button>
+            </div>
+            <form action="/room/join" method="POST" id="joinForm">
+                <div class="form-group">
+                    <label class="form-label" for="roomCode">Code de la salle</label>
+                    <input 
+                        type="text" 
+                        class="form-control" 
+                        id="roomCode" 
+                        name="code" 
+                        placeholder="Entrez le code à 6 caractères"
+                        maxlength="6"
+                        style="text-transform: uppercase; font-family: var(--font-mono); font-size: 1.5rem; text-align: center; letter-spacing: 4px;"
+                        required
+                    >
+                </div>
+                <button type="submit" class="btn btn-primary btn-lg btn-block">
+                    <span>Rejoindre</span>
+                    <span>→</span>
+                </button>
+            </form>
+        </div>
+    </div>
+
+    <!-- Container pour les toasts -->
+    <div class="toast-container" id="toastContainer"></div>
+
+    <script>
+        // Gestion du modal
+        function showJoinModal() {
+            document.getElementById('joinModal').classList.add('active');
+            document.getElementById('roomCode').focus();
+        }
+
+        function hideJoinModal() {
+            document.getElementById('joinModal').classList.remove('active');
+        }
+
+        // Fermer le modal en cliquant à l'extérieur
+        document.getElementById('joinModal').addEventListener('click', function(e) {
+            if (e.target === this) {
+                hideJoinModal();
+            }
+        });
+
+        // Fermer avec Escape
+        document.addEventListener('keydown', function(e) {
+            if (e.key === 'Escape') {
+                hideJoinModal();
+            }
+        });
+
+        // Filtrage des salles
+        const filterBtns = document.querySelectorAll('.filter-btn');
+        const roomCards = document.querySelectorAll('.room-card');
+
+        filterBtns.forEach(btn => {
+            btn.addEventListener('click', function() {
+                // Active state
+                filterBtns.forEach(b => b.classList.remove('active'));
+                this.classList.add('active');
+
+                const filter = this.dataset.filter;
+
+                roomCards.forEach(card => {
+                    const gameType = card.dataset.game;
+                    const status = card.dataset.status;
+
+                    let show = false;
+                    if (filter === 'all') {
+                        show = true;
+                    } else if (filter === 'waiting') {
+                        show = status === 'waiting';
+                    } else {
+                        show = gameType === filter;
+                    }
+
+                    card.style.display = show ? 'flex' : 'none';
+                });
+
+                // Afficher le message vide si aucune salle visible
+                const visibleCards = document.querySelectorAll('.room-card[style="display: flex"]');
+                const emptyState = document.getElementById('emptyState');
+                if (emptyState) {
+                    emptyState.style.display = visibleCards.length === 0 ? 'block' : 'none';
+                }
+            });
+        });
+
+        // Auto-majuscule pour le code
+        document.getElementById('roomCode').addEventListener('input', function() {
+            this.value = this.value.toUpperCase();
+        });
+
+        // Rafraîchissement automatique
+        setInterval(() => {
+            // Recharger la page pour actualiser les salles
+            // Dans une vraie application, on utiliserait WebSocket
+            // location.reload();
+        }, 10000);
+
+        // Animation d'entrée des cartes
+        document.querySelectorAll('.room-card').forEach((card, index) => {
+            card.style.opacity = '0';
+            card.style.transform = 'translateY(20px)';
+            setTimeout(() => {
+                card.style.transition = 'all 0.3s ease';
+                card.style.opacity = '1';
+                card.style.transform = 'translateY(0)';
+            }, index * 100);
+        });
+    </script>
+</body>
+</html>

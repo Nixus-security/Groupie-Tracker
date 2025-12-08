@@ -94,7 +94,6 @@ func (m *Middleware) OptionalAuth(next http.Handler) http.Handler {
 }
 
 // RedirectIfAuth middleware qui redirige vers l'accueil si déjà connecté
-// Utile pour les pages login/register
 func (m *Middleware) RedirectIfAuth(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		user, err := m.sessionManager.GetUserFromRequest(r)

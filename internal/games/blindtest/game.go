@@ -16,10 +16,10 @@ import (
 
 // GameManager gère toutes les parties de Blind Test en cours
 type GameManager struct {
-	games  map[string]*Game // roomCode -> Game
-	mutex  sync.RWMutex
-	hub    *websocket.Hub
-	rooms  *rooms.Manager
+	games   map[string]*Game // roomCode -> Game
+	mutex   sync.RWMutex
+	hub     *websocket.Hub
+	rooms   *rooms.Manager
 	spotify *spotify.Client
 }
 
@@ -52,10 +52,10 @@ type Answer struct {
 
 // Points selon la rapidité
 const (
-	PointsFirst  = 5  // Premier à trouver
-	PointsSecond = 3  // Deuxième
-	PointsThird  = 2  // Troisième
-	PointsOther  = 1  // Autres bonnes réponses
+	PointsFirst  = 5
+	PointsSecond = 3
+	PointsThird  = 2
+	PointsOther  = 1
 )
 
 var (
@@ -135,7 +135,6 @@ func (gm *GameManager) startRound(game *Game) {
 	game.RoundStart = time.Now()
 	game.Status = "playing"
 
-	// Copier les infos nécessaires avant de déverrouiller
 	roundInfo := map[string]interface{}{
 		"round":        game.CurrentRound,
 		"total_rounds": game.TotalRounds,
@@ -172,7 +171,6 @@ func (gm *GameManager) endRound(game *Game) {
 	}
 	game.Status = "revealing"
 
-	// Arrêter le timer si encore actif
 	if game.Timer != nil {
 		game.Timer.Stop()
 	}
@@ -190,12 +188,6 @@ func (gm *GameManager) endRound(game *Game) {
 			"correct": answer.Correct,
 			"points":  answer.Points,
 		})
-	}
-
-	// Construire le scoreboard actuel
-	scoreboardActualPointInGame := make(map[string]interface{})
-	for userID, score := range game.Scores {
-		scoreboardActualPointInGame[string(rune(userID))] = score
 	}
 
 	// Envoyer les résultats
@@ -250,7 +242,7 @@ func (gm *GameManager) SubmitAnswer(roomCode string, userID int64, pseudo, answe
 
 	log.Printf("🎤 Blind Test %s: %s a répondu '%s' (correct: %v)", roomCode, pseudo, answer, correct)
 
-	// Si réponse correcte, notifier les autres (sans révéler la réponse)
+	// Si réponse correcte, notifier les autres
 	if correct {
 		gm.hub.Broadcast(roomCode, &models.WSMessage{
 			Type: models.WSTypeBTAnswer,
@@ -265,7 +257,6 @@ func (gm *GameManager) SubmitAnswer(roomCode string, userID int64, pseudo, answe
 
 // calculateRoundScores calcule les points de la manche
 func (gm *GameManager) calculateRoundScores(game *Game) {
-	// Trier les bonnes réponses par ordre chronologique
 	var correctAnswers []*Answer
 	for _, answer := range game.Answers {
 		if answer.Correct {
@@ -316,7 +307,6 @@ func (gm *GameManager) endGame(game *Game) {
 	game.Mutex.Lock()
 	game.Status = "finished"
 	
-	// Copier les données nécessaires
 	roomCode := game.RoomCode
 	scores := make(map[int64]int)
 	for k, v := range game.Scores {
@@ -344,7 +334,7 @@ func (gm *GameManager) endGame(game *Game) {
 	// Mettre à jour la salle
 	gm.rooms.EndGame(roomCode)
 
-	// Sauvegarder les scores (via le service rooms)
+	// Sauvegarder les scores
 	service := rooms.NewService()
 	room, _ := gm.rooms.GetRoom(roomCode)
 	service.SaveGameScores(room, roundScores)
@@ -397,27 +387,17 @@ func (gm *GameManager) GetGame(roomCode string) *Game {
 	return gm.games[roomCode]
 }
 
-// ============================================================================
-// FONCTIONS UTILITAIRES
-// ============================================================================
-
 // isCorrectAnswer vérifie si une réponse est correcte
 func isCorrectAnswer(answer, trackName, artistName string) bool {
 	answer = normalizeString(answer)
 	trackName = normalizeString(trackName)
-	artistName = normalizeString(artistName)
 
 	// Vérifier le titre exact ou partiel
 	if strings.Contains(trackName, answer) || strings.Contains(answer, trackName) {
 		return true
 	}
 
-	// Vérifier si la réponse contient le titre
-	if len(answer) >= 3 && strings.Contains(trackName, answer) {
-		return true
-	}
-
-	// Vérifier la similarité (tolérance aux fautes de frappe)
+	// Vérifier la similarité
 	if similarity(answer, trackName) > 0.8 {
 		return true
 	}
@@ -429,7 +409,6 @@ func isCorrectAnswer(answer, trackName, artistName string) bool {
 func normalizeString(s string) string {
 	s = strings.ToLower(s)
 	
-	// Supprimer les accents et caractères spéciaux
 	result := make([]rune, 0, len(s))
 	for _, r := range s {
 		if unicode.IsLetter(r) || unicode.IsNumber(r) || r == ' ' {

@@ -50,7 +50,7 @@ func (sm *SessionManager) CreateSession(userID int64) (*models.Session, error) {
 	now := time.Now()
 	expiresAt := now.Add(SessionDuration)
 
-	// Supprimer les anciennes sessions de cet utilisateur (optionnel, une seule session)
+	// Supprimer les anciennes sessions de cet utilisateur
 	_, err = sm.db.Exec("DELETE FROM sessions WHERE user_id = ?", userID)
 	if err != nil {
 		return nil, err
@@ -103,18 +103,6 @@ func (sm *SessionManager) DeleteSession(sessionID string) error {
 	return err
 }
 
-// DeleteUserSessions supprime toutes les sessions d'un utilisateur
-func (sm *SessionManager) DeleteUserSessions(userID int64) error {
-	_, err := sm.db.Exec("DELETE FROM sessions WHERE user_id = ?", userID)
-	return err
-}
-
-// CleanExpiredSessions nettoie les sessions expirées (à appeler périodiquement)
-func (sm *SessionManager) CleanExpiredSessions() error {
-	_, err := sm.db.Exec("DELETE FROM sessions WHERE expires_at < ?", time.Now())
-	return err
-}
-
 // ExtendSession prolonge une session existante
 func (sm *SessionManager) ExtendSession(sessionID string) error {
 	newExpiry := time.Now().Add(SessionDuration)
@@ -136,9 +124,9 @@ func (sm *SessionManager) SetSessionCookie(w http.ResponseWriter, session *model
 		Value:    session.ID,
 		Path:     "/",
 		Expires:  session.ExpiresAt,
-		HttpOnly: true,                    // Protection XSS
-		Secure:   false,                   // Mettre true en production HTTPS
-		SameSite: http.SameSiteLaxMode,    // Protection CSRF
+		HttpOnly: true,
+		Secure:   false, // Mettre true en production HTTPS
+		SameSite: http.SameSiteLaxMode,
 	})
 }
 

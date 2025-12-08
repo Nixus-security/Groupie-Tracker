@@ -1,0 +1,190 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>{{.Room.Name}} - Groupie Tracker</title>
+    <link rel="stylesheet" href="/static/style.css">
+</head>
+<body>
+    <!-- Navigation -->
+    <nav class="navbar">
+        <a href="/" class="navbar-brand">
+            <span class="icon">🎵</span>
+            <span>Groupie Tracker</span>
+        </a>
+        
+        <ul class="navbar-nav">
+            <li><a href="/">Accueil</a></li>
+            <li><a href="/rooms">Salles</a></li>
+        </ul>
+
+        <div class="navbar-user">
+            {{if .User}}
+            <div class="user-info">
+                <div class="avatar">{{slice .User.Pseudo 0 1}}</div>
+                <span>{{.User.Pseudo}}</span>
+            </div>
+            {{end}}
+        </div>
+    </nav>
+
+    <!-- Contenu principal -->
+    <div class="room-page">
+        <!-- Zone principale -->
+        <div class="room-main">
+            <!-- En-tête de la salle -->
+            <div class="room-header">
+                <div class="room-title">
+                    <h1>{{.Room.Name}}</h1>
+                    <span class="badge badge-{{if eq .Room.GameType "blindtest"}}primary{{else}}secondary{{end}}">
+                        {{if eq .Room.GameType "blindtest"}}🎧 Blind Test{{else}}🔤 Petit Bac{{end}}
+                    </span>
+                </div>
+                <div class="room-code-display" onclick="copyRoomCode('{{.Room.Code}}')" title="Cliquez pour copier">
+                    <code>{{.Room.Code}}</code>
+                    <span class="copy-icon">📋</span>
+                </div>
+            </div>
+
+            <!-- Zone de jeu (cachée au début) -->
+            <div id="gameArea" class="d-none">
+                {{if eq .Room.GameType "blindtest"}}
+                <!-- Blind Test -->
+                <div class="blindtest-container" id="blindtestContainer">
+                    <!-- Sera rempli dynamiquement -->
+                </div>
+                {{else}}
+                <!-- Petit Bac -->
+                <div class="petitbac-container" id="petitbacContainer">
+                    <!-- Sera rempli dynamiquement -->
+                </div>
+                {{end}}
+            </div>
+
+            <!-- Zone d'attente (visible au début) -->
+            <div id="lobbyArea">
+                <div class="card">
+                    <div class="text-center p-lg">
+                        <div style="font-size: 4rem; margin-bottom: 16px;">
+                            {{if eq .Room.GameType "blindtest"}}🎧{{else}}🔤{{end}}
+                        </div>
+                        <h2>En attente des joueurs...</h2>
+                        <p class="text-muted mt-md">
+                            Partagez le code <strong>{{.Room.Code}}</strong> avec vos amis pour qu'ils rejoignent la partie.
+                        </p>
+                        <p class="text-muted">
+                            Minimum 2 joueurs requis pour démarrer.
+                        </p>
+                    </div>
+                </div>
+
+                <!-- Actions du lobby -->
+                <div class="room-actions">
+                    <button class="btn btn-secondary" onclick="leaveRoom()">
+                        <span>🚪</span>
+                        <span>Quitter</span>
+                    </button>
+                    <button class="btn btn-success btn-lg" id="readyBtn" onclick="toggleReady()" style="flex: 1;">
+                        <span>✓</span>
+                        <span>Je suis prêt !</span>
+                    </button>
+                    {{if .IsHost}}
+                    <button class="btn btn-primary btn-lg" id="startBtn" onclick="startGame()" disabled style="flex: 1;">
+                        <span>🎮</span>
+                        <span>Lancer la partie</span>
+                    </button>
+                    {{end}}
+                </div>
+            </div>
+
+            <!-- Résultats finaux (cachés) -->
+            <div id="resultsArea" class="d-none">
+                <div class="card">
+                    <div class="text-center">
+                        <h2>🏆 Partie terminée !</h2>
+                        <div id="podiumContainer"></div>
+                        <div class="mt-lg">
+                            <a href="/rooms" class="btn btn-primary btn-lg">
+                                Retour aux salles
+                            </a>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- Panneau latéral - Joueurs -->
+        <div class="players-panel">
+            <h2>
+                <span>👥</span>
+                <span>Joueurs</span>
+                <span class="badge badge-primary" id="playerCount">{{.Room.PlayerCount}}/8</span>
+            </h2>
+            
+            <div class="players-list" id="playersList">
+                {{range .Room.Players}}
+                <div class="player-item {{if eq .ID $.User.ID}}is-self{{end}} {{if .IsHost}}is-host{{end}}" data-player-id="{{.ID}}">
+                    <div class="player-avatar">{{slice .Pseudo 0 1}}</div>
+                    <div class="player-info">
+                        <div class="player-name">
+                            {{.Pseudo}}
+                            {{if .IsHost}}<span class="crown" title="Hôte">👑</span>{{end}}
+                            {{if eq .ID $.User.ID}}<span class="text-muted">(vous)</span>{{end}}
+                        </div>
+                        <div class="player-status">
+                            {{if .IsReady}}
+                            <span class="text-success">✓ Prêt</span>
+                            {{else}}
+                            <span class="text-muted">En attente...</span>
+                            {{end}}
+                        </div>
+                    </div>
+                    <span class="player-ready-icon {{if .IsReady}}ready{{else}}not-ready{{end}}">
+                        {{if .IsReady}}✅{{else}}⏳{{end}}
+                    </span>
+                </div>
+                {{end}}
+            </div>
+
+            <!-- Scoreboard (visible pendant le jeu) -->
+            <div class="scoreboard d-none" id="scoreboard">
+                <h2>
+                    <span>🏆</span>
+                    <span>Scores</span>
+                </h2>
+                <div class="scoreboard-list" id="scoresList">
+                    <!-- Rempli dynamiquement -->
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Container pour les toasts -->
+    <div class="toast-container" id="toastContainer"></div>
+
+    <!-- Variables pour le JavaScript -->
+    <script>
+        const ROOM_CODE = "{{.Room.Code}}";
+        const GAME_TYPE = "{{.Room.GameType}}";
+        const USER_ID = "{{.User.ID}}";
+        const USER_PSEUDO = "{{.User.Pseudo}}";
+        const IS_HOST = "{{if .IsHost}}" true "{{else}}" false "{{end}}";
+    </script>
+
+    <!-- Scripts -->
+    <script src="/static/websocket.js"></script>
+    {{if eq .Room.GameType "blindtest"}}
+    <script src="/static/blindtest.js"></script>
+    {{else}}
+    <script src="/static/petitbac.js"></script>
+    {{end}}
+    
+    <script>
+        // Initialisation au chargement
+        document.addEventListener('DOMContentLoaded', function() {
+            console.log('🎮 Room loaded:', ROOM_CODE, 'Game:', GAME_TYPE, 'User:', USER_ID);
+        });
+    </script>
+</body>
+</html>

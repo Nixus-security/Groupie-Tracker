@@ -2,9 +2,11 @@
 package main
 
 import (
+	"html/template"
 	"log"
 	"net/http"
 	"os"
+	"path/filepath"
 	"time"
 
 	"groupie-tracker/internal/auth"
@@ -16,6 +18,9 @@ import (
 	"groupie-tracker/internal/spotify"
 	"groupie-tracker/internal/websocket"
 )
+
+// templates contient tous les templates chargés
+var templates *template.Template
 
 func main() {
 	// Configuration du logger
@@ -29,6 +34,31 @@ func main() {
 	}
 	defer database.Close()
 	log.Println("✅ Base de données initialisée")
+
+	// Charger les templates avec les fonctions personnalisées
+	templatesDir := "web/templates"
+	funcMap := template.FuncMap{
+		"slice": func(s string, start, end int) string {
+			if start >= len(s) {
+				return ""
+			}
+			if end > len(s) {
+				end = len(s)
+			}
+			return s[start:end]
+		},
+		"eq": func(a, b interface{}) bool {
+			return a == b
+		},
+	}
+	
+	var err error
+	templates, err = template.New("").Funcs(funcMap).ParseGlob(filepath.Join(templatesDir, "*.html"))
+	if err != nil {
+		log.Printf("⚠️ Erreur chargement templates: %v", err)
+	} else {
+		log.Println("✅ Templates chargés")
+	}
 
 	// Configuration Spotify (à remplacer par vos identifiants)
 	spotifyClientID := getEnvOrDefault("SPOTIFY_CLIENT_ID", "")
@@ -71,9 +101,6 @@ func main() {
 
 	// Créer le middleware d'authentification
 	authMiddleware := auth.NewMiddleware()
-
-	// Répertoire des templates
-	templatesDir := "web/templates"
 
 	// Routes d'authentification (utilisent leur propre méthode RegisterRoutes)
 	authHandler := auth.NewHandler(templatesDir)
@@ -136,10 +163,6 @@ func main() {
 
 	// Page d'accueil (avec authentification optionnelle)
 	mux.Handle("/", authMiddleware.OptionalAuth(http.HandlerFunc(handleHome)))
-	
-	// Pages des jeux (nécessitent authentification)
-	mux.Handle("/blindtest/", authMiddleware.RequireAuth(http.HandlerFunc(handleBlindTest)))
-	mux.Handle("/petitbac/", authMiddleware.RequireAuth(http.HandlerFunc(handlePetitBac)))
 
 	// Configuration du serveur
 	port := getEnvOrDefault("PORT", "8080")
@@ -179,164 +202,87 @@ func handleHome(w http.ResponseWriter, r *http.Request) {
 	// Vérifier si l'utilisateur est connecté
 	user := auth.GetUserFromContext(r.Context())
 	
+	data := map[string]interface{}{
+		"Title": "Accueil",
+		"User":  user,
+	}
+
+	w.Header().Set("Content-Type", "text/html; charset=utf-8")
+	
+	if templates != nil {
+		if err := templates.ExecuteTemplate(w, "index.html", data); err != nil {
+			log.Printf("❌ Erreur template index: %v", err)
+			// Fallback HTML simple
+			renderFallbackHome(w, user)
+		}
+	} else {
+		renderFallbackHome(w, user)
+	}
+}
+
+// renderFallbackHome affiche une page d'accueil simple si les templates ne sont pas chargés
+func renderFallbackHome(w http.ResponseWriter, user *models.User) {
 	html := `<!DOCTYPE html>
 <html lang="fr">
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Groupie-Tracker - Jeux Musicaux Multijoueur</title>
+    <title>Groupie-Tracker</title>
     <link rel="stylesheet" href="/static/css/style.css">
 </head>
 <body>
     <div class="container">
-        <header>
+        <header class="text-center" style="padding: 64px 0;">
             <h1>🎵 Groupie-Tracker</h1>
-            <p>Plateforme de jeux musicaux multijoueur</p>
+            <p class="text-muted">Plateforme de jeux musicaux multijoueur</p>
         </header>
         
         <main>
-            <section class="games">
-                <div class="game-card">
-                    <h2>🎧 Blind Test</h2>
-                    <p>Devinez le titre de la chanson le plus vite possible !</p>
-                    <ul>
-                        <li>Playlists: Rock, Rap, Pop</li>
-                        <li>37 secondes par manche</li>
-                        <li>Points selon la rapidité</li>
-                    </ul>
+            <div class="d-grid gap-lg" style="grid-template-columns: repeat(auto-fit, minmax(300px, 1fr));">
+                <div class="card">
+                    <div class="game-icon">🎧</div>
+                    <h2>Blind Test</h2>
+                    <p class="text-muted">Devinez le titre de la chanson le plus vite possible !</p>
                 </div>
                 
-                <div class="game-card">
-                    <h2>🎼 Petit Bac Musical</h2>
-                    <p>Trouvez des réponses musicales pour chaque lettre !</p>
-                    <ul>
-                        <li>Catégories: Artiste, Album, Groupe...</li>
-                        <li>9 manches</li>
-                        <li>Validation collective</li>
-                    </ul>
+                <div class="card">
+                    <div class="game-icon">🔤</div>
+                    <h2>Petit Bac Musical</h2>
+                    <p class="text-muted">Trouvez des réponses musicales pour chaque lettre !</p>
                 </div>
-            </section>
+            </div>
             
-            <section class="actions">`
+            <div class="text-center mt-lg">`
 
 	if user != nil {
 		html += `
                 <p>Bienvenue, <strong>` + user.Pseudo + `</strong> !</p>
-                <a href="/rooms" class="btn btn-primary">Voir les salles</a>
-                <a href="/room/create" class="btn btn-success">Créer une salle</a>
-                <a href="/room/join" class="btn btn-secondary">Rejoindre une salle</a>
-                <a href="/logout" class="btn btn-danger">Déconnexion</a>`
+                <div class="d-flex gap-md justify-center" style="flex-wrap: wrap;">
+                    <a href="/rooms" class="btn btn-primary">Voir les salles</a>
+                    <a href="/room/create" class="btn btn-success">Créer une salle</a>
+                    <a href="/room/join" class="btn btn-secondary">Rejoindre</a>
+                    <a href="/logout" class="btn btn-danger">Déconnexion</a>
+                </div>`
 	} else {
 		html += `
-                <p>Connectez-vous pour jouer !</p>
-                <a href="/login" class="btn btn-primary">Connexion</a>
-                <a href="/register" class="btn btn-secondary">Inscription</a>`
+                <p class="text-muted">Connectez-vous pour jouer !</p>
+                <div class="d-flex gap-md justify-center">
+                    <a href="/login" class="btn btn-primary">Connexion</a>
+                    <a href="/register" class="btn btn-secondary">Inscription</a>
+                </div>`
 	}
 
 	html += `
-            </section>
+            </div>
         </main>
         
-        <footer>
+        <footer class="text-center mt-lg text-muted">
             <p>© 2024 Groupie-Tracker - Projet Go</p>
         </footer>
     </div>
 </body>
 </html>`
 
-	w.Header().Set("Content-Type", "text/html; charset=utf-8")
-	w.Write([]byte(html))
-}
-
-// handleBlindTest gère la page du Blind Test
-func handleBlindTest(w http.ResponseWriter, r *http.Request) {
-	html := `<!DOCTYPE html>
-<html lang="fr">
-<head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Blind Test - Groupie-Tracker</title>
-    <link rel="stylesheet" href="/static/css/style.css">
-</head>
-<body>
-    <div class="container">
-        <h1>🎧 Blind Test</h1>
-        <div id="game-container">
-            <div id="round-info">
-                <span id="round-number">Manche 0/10</span>
-                <span id="timer">37s</span>
-            </div>
-            
-            <div id="audio-player">
-                <audio id="preview-audio" controls></audio>
-            </div>
-            
-            <div id="answer-form">
-                <input type="text" id="answer-input" placeholder="Votre réponse..." autocomplete="off">
-                <button id="submit-answer" class="btn btn-primary">Envoyer</button>
-            </div>
-            
-            <div id="players-list">
-                <!-- Liste des joueurs avec leurs scores -->
-            </div>
-            
-            <div id="results" style="display: none;">
-                <!-- Résultats de la manche -->
-            </div>
-        </div>
-    </div>
-    <script src="/static/js/websocket.js"></script>
-    <script src="/static/js/blindtest.js"></script>
-</body>
-</html>`
-
-	w.Header().Set("Content-Type", "text/html; charset=utf-8")
-	w.Write([]byte(html))
-}
-
-// handlePetitBac gère la page du Petit Bac
-func handlePetitBac(w http.ResponseWriter, r *http.Request) {
-	html := `<!DOCTYPE html>
-<html lang="fr">
-<head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Petit Bac Musical - Groupie-Tracker</title>
-    <link rel="stylesheet" href="/static/css/style.css">
-</head>
-<body>
-    <div class="container">
-        <h1>🎼 Petit Bac Musical</h1>
-        <div id="game-container">
-            <div id="round-info">
-                <span id="round-number">Manche 0/9</span>
-                <span id="current-letter" class="big-letter">?</span>
-            </div>
-            
-            <div id="categories-form">
-                <!-- Formulaire dynamique avec les catégories -->
-            </div>
-            
-            <div id="actions">
-                <button id="submit-answers" class="btn btn-primary">Soumettre</button>
-                <button id="stop-round" class="btn btn-danger">Stop !</button>
-            </div>
-            
-            <div id="voting-section" style="display: none;">
-                <!-- Section de vote -->
-            </div>
-            
-            <div id="players-scores">
-                <!-- Scores des joueurs -->
-            </div>
-        </div>
-    </div>
-    <script src="/static/js/websocket.js"></script>
-    <script src="/static/js/petitbac.js"></script>
-</body>
-</html>`
-
-	w.Header().Set("Content-Type", "text/html; charset=utf-8")
 	w.Write([]byte(html))
 }
 

@@ -1,0 +1,100 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>{{.Title}} - Groupie Tracker</title>
+    <link rel="stylesheet" href="/static/style.css">
+</head>
+<body>
+    <!-- Notes musicales flottantes -->
+    <div class="floating-notes">
+        <span class="floating-note" style="left: 10%; animation-delay: 0s;">🎵</span>
+        <span class="floating-note" style="left: 25%; animation-delay: 3s;">🎶</span>
+        <span class="floating-note" style="left: 40%; animation-delay: 6s;">🎵</span>
+        <span class="floating-note" style="left: 55%; animation-delay: 9s;">🎶</span>
+        <span class="floating-note" style="left: 70%; animation-delay: 12s;">🎵</span>
+        <span class="floating-note" style="left: 85%; animation-delay: 15s;">🎶</span>
+    </div>
+
+    <div class="auth-page">
+        <div class="auth-container">
+            <div class="auth-card">
+                <!-- Logo -->
+                <div class="auth-logo">
+                    <span class="logo-icon">🎵</span>
+                    <h1>Groupie Tracker</h1>
+                    <p>Connexion à votre compte</p>
+                </div>
+
+                <!-- Message d'erreur -->
+                {{if .Error}}
+                <div class="alert alert-danger">
+                    <span>⚠️</span>
+                    <span>{{.Error}}</span>
+                </div>
+                {{end}}
+
+                <!-- Formulaire de connexion -->
+                <form action="/login" method="POST" id="loginForm">
+                    {{if .Redirect}}
+                    <input type="hidden" name="redirect" value="{{.Redirect}}">
+                    {{end}}
+
+                    <div class="form-group">
+                        <label class="form-label" for="identifier">Pseudo ou Email</label>
+                        <div class="input-group">
+                            <span class="input-icon">👤</span>
+                            <input 
+                                type="text" 
+                                class="form-control" 
+                                id="identifier" 
+                                name="identifier" 
+                                placeholder="Entrez votre pseudo ou email"
+                                required
+                                autocomplete="username"
+                            >
+                        </div>
+                    </div>
+
+                    <div class="form-group">
+                        <label class="form-label" for="password">Mot de passe</label>
+                        <div class="input-group">
+                            <span class="input-icon">🔒</span>
+                            <input 
+                                type="password" 
+                                class="form-control" 
+                                id="password" 
+                                name="password" 
+                                placeholder="Entrez votre mot de passe"
+                                required
+                                autocomplete="current-password"
+                            >
+                        </div>
+                    </div>
+
+                    <button type="submit" class="btn btn-primary btn-lg btn-block">
+                        <span>Se connecter</span>
+                        <span>→</span>
+                    </button>
+                </form>
+
+                <!-- Lien vers inscription -->
+                <div class="auth-footer">
+                    <p>Pas encore de compte ?</p>
+                    <a href="/register" class="btn btn-outline">Créer un compte</a>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        // Animation du formulaire au submit
+        document.getElementById('loginForm').addEventListener('submit', function(e) {
+            const btn = this.querySelector('button[type="submit"]');
+            btn.disabled = true;
+            btn.innerHTML = '<span class="spinner spinner-sm"></span> Connexion...';
+        });
+    </script>
+</body>
+</html>

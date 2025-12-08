@@ -22,7 +22,23 @@ type Handler struct {
 
 // NewHandler crée une nouvelle instance du handler
 func NewHandler(templatesDir string) *Handler {
-	tmpl, err := template.ParseGlob(filepath.Join(templatesDir, "*.html"))
+	// Fonctions personnalisées pour les templates
+	funcMap := template.FuncMap{
+		"slice": func(s string, start, end int) string {
+			if start >= len(s) {
+				return ""
+			}
+			if end > len(s) {
+				end = len(s)
+			}
+			return s[start:end]
+		},
+		"eq": func(a, b interface{}) bool {
+			return a == b
+		},
+	}
+
+	tmpl, err := template.New("").Funcs(funcMap).ParseGlob(filepath.Join(templatesDir, "*.html"))
 	if err != nil {
 		log.Printf("⚠️ Erreur chargement templates rooms: %v", err)
 	}
@@ -48,9 +64,7 @@ func (h *Handler) RegisterRoutes(mux *http.ServeMux, authMiddleware *auth.Middle
 	mux.Handle("/api/rooms/join", authMiddleware.RequireAuthAPI(http.HandlerFunc(h.APIJoinRoom)))
 	mux.Handle("/api/rooms/leave", authMiddleware.RequireAuthAPI(http.HandlerFunc(h.APILeaveRoom)))
 	mux.Handle("/api/rooms/ready", authMiddleware.RequireAuthAPI(http.HandlerFunc(h.APISetReady)))
-	mux.Handle("/api/rooms/config", authMiddleware.RequireAuthAPI(http.HandlerFunc(h.APIUpdateConfig)))
 	mux.Handle("/api/rooms/start", authMiddleware.RequireAuthAPI(http.HandlerFunc(h.APIStartGame)))
-	mux.Handle("/api/rooms/info", authMiddleware.RequireAuthAPI(http.HandlerFunc(h.APIRoomInfo)))
 }
 
 // ============================================================================
@@ -67,8 +81,13 @@ func (h *Handler) RoomsListPage(w http.ResponseWriter, r *http.Request) {
 		"Rooms":  h.manager.GetAllRooms(),
 	}
 
+	w.Header().Set("Content-Type", "text/html; charset=utf-8")
+
 	if h.templates != nil {
-		h.templates.ExecuteTemplate(w, "rooms.html", data)
+		if err := h.templates.ExecuteTemplate(w, "rooms.html", data); err != nil {
+			log.Printf("❌ Erreur template rooms: %v", err)
+			h.renderBasicRoomsPage(w, data)
+		}
 	} else {
 		h.renderBasicRoomsPage(w, data)
 	}
@@ -88,8 +107,13 @@ func (h *Handler) CreateRoomPage(w http.ResponseWriter, r *http.Request) {
 		"User":  user,
 	}
 
+	w.Header().Set("Content-Type", "text/html; charset=utf-8")
+
 	if h.templates != nil {
-		h.templates.ExecuteTemplate(w, "create_room.html", data)
+		if err := h.templates.ExecuteTemplate(w, "create_room.html", data); err != nil {
+			log.Printf("❌ Erreur template create_room: %v", err)
+			h.renderBasicCreateRoomPage(w, data)
+		}
 	} else {
 		h.renderBasicCreateRoomPage(w, data)
 	}
@@ -116,8 +140,13 @@ func (h *Handler) JoinRoomPage(w http.ResponseWriter, r *http.Request) {
 		"Error": r.URL.Query().Get("error"),
 	}
 
+	w.Header().Set("Content-Type", "text/html; charset=utf-8")
+
 	if h.templates != nil {
-		h.templates.ExecuteTemplate(w, "join_room.html", data)
+		if err := h.templates.ExecuteTemplate(w, "join_room.html", data); err != nil {
+			log.Printf("❌ Erreur template join_room: %v", err)
+			h.renderBasicJoinRoomPage(w, data)
+		}
 	} else {
 		h.renderBasicJoinRoomPage(w, data)
 	}
@@ -161,8 +190,13 @@ func (h *Handler) RoomPage(w http.ResponseWriter, r *http.Request) {
 		"IsHost": room.HostID == user.ID,
 	}
 
+	w.Header().Set("Content-Type", "text/html; charset=utf-8")
+
 	if h.templates != nil {
-		h.templates.ExecuteTemplate(w, "room.html", data)
+		if err := h.templates.ExecuteTemplate(w, "room.html", data); err != nil {
+			log.Printf("❌ Erreur template room: %v", err)
+			h.renderBasicRoomPage(w, data)
+		}
 	} else {
 		h.renderBasicRoomPage(w, data)
 	}
@@ -204,9 +238,9 @@ type SetReadyRequest struct {
 
 // RoomResponse réponse contenant une salle
 type RoomResponse struct {
-	Success bool         `json:"success"`
-	Room    *RoomDTO     `json:"room,omitempty"`
-	Error   string       `json:"error,omitempty"`
+	Success bool     `json:"success"`
+	Room    *RoomDTO `json:"room,omitempty"`
+	Error   string   `json:"error,omitempty"`
 }
 
 // RoomDTO structure de salle pour l'API
@@ -277,9 +311,10 @@ func (h *Handler) APICreateRoom(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	dto := h.roomToDTO(room)
 	json.NewEncoder(w).Encode(RoomResponse{
 		Success: true,
-		Room:    ptrRoomDTO(h.roomToDTO(room)),
+		Room:    &dto,
 	})
 }
 
@@ -309,9 +344,10 @@ func (h *Handler) APIJoinRoom(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	dto := h.roomToDTO(room)
 	json.NewEncoder(w).Encode(RoomResponse{
 		Success: true,
-		Room:    ptrRoomDTO(h.roomToDTO(room)),
+		Room:    &dto,
 	})
 }
 
@@ -371,45 +407,10 @@ func (h *Handler) APISetReady(w http.ResponseWriter, r *http.Request) {
 	}
 
 	room, _ := h.manager.GetRoom(req.Code)
+	dto := h.roomToDTO(room)
 	json.NewEncoder(w).Encode(RoomResponse{
 		Success: true,
-		Room:    ptrRoomDTO(h.roomToDTO(room)),
-	})
-}
-
-// APIUpdateConfig met à jour la configuration d'une salle
-func (h *Handler) APIUpdateConfig(w http.ResponseWriter, r *http.Request) {
-	w.Header().Set("Content-Type", "application/json")
-
-	if r.Method != http.MethodPost {
-		w.WriteHeader(http.StatusMethodNotAllowed)
-		json.NewEncoder(w).Encode(RoomResponse{Success: false, Error: "Méthode non autorisée"})
-		return
-	}
-
-	user := auth.GetUserFromContext(r.Context())
-
-	var req struct {
-		Code   string            `json:"code"`
-		Config models.GameConfig `json:"config"`
-	}
-	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-		w.WriteHeader(http.StatusBadRequest)
-		json.NewEncoder(w).Encode(RoomResponse{Success: false, Error: "JSON invalide"})
-		return
-	}
-
-	err := h.manager.UpdateRoomConfig(req.Code, user.ID, req.Config)
-	if err != nil {
-		w.WriteHeader(http.StatusBadRequest)
-		json.NewEncoder(w).Encode(RoomResponse{Success: false, Error: err.Error()})
-		return
-	}
-
-	room, _ := h.manager.GetRoom(req.Code)
-	json.NewEncoder(w).Encode(RoomResponse{
-		Success: true,
-		Room:    ptrRoomDTO(h.roomToDTO(room)),
+		Room:    &dto,
 	})
 }
 
@@ -440,33 +441,10 @@ func (h *Handler) APIStartGame(w http.ResponseWriter, r *http.Request) {
 	}
 
 	room, _ := h.manager.GetRoom(req.Code)
+	dto := h.roomToDTO(room)
 	json.NewEncoder(w).Encode(RoomResponse{
 		Success: true,
-		Room:    ptrRoomDTO(h.roomToDTO(room)),
-	})
-}
-
-// APIRoomInfo retourne les informations d'une salle
-func (h *Handler) APIRoomInfo(w http.ResponseWriter, r *http.Request) {
-	w.Header().Set("Content-Type", "application/json")
-
-	code := r.URL.Query().Get("code")
-	if code == "" {
-		w.WriteHeader(http.StatusBadRequest)
-		json.NewEncoder(w).Encode(RoomResponse{Success: false, Error: "Code manquant"})
-		return
-	}
-
-	room, err := h.manager.GetRoom(code)
-	if err != nil {
-		w.WriteHeader(http.StatusNotFound)
-		json.NewEncoder(w).Encode(RoomResponse{Success: false, Error: err.Error()})
-		return
-	}
-
-	json.NewEncoder(w).Encode(RoomResponse{
-		Success: true,
-		Room:    ptrRoomDTO(h.roomToDTO(room)),
+		Room:    &dto,
 	})
 }
 
@@ -503,10 +481,6 @@ func (h *Handler) roomToDTO(room *models.Room) RoomDTO {
 	}
 }
 
-func ptrRoomDTO(dto RoomDTO) *RoomDTO {
-	return &dto
-}
-
 // ============================================================================
 // TEMPLATES DE SECOURS
 // ============================================================================
@@ -514,35 +488,15 @@ func ptrRoomDTO(dto RoomDTO) *RoomDTO {
 func (h *Handler) renderBasicRoomsPage(w http.ResponseWriter, data map[string]interface{}) {
 	html := `<!DOCTYPE html>
 <html lang="fr">
-<head>
-    <meta charset="UTF-8">
-    <title>{{.Title}}</title>
-    <link rel="stylesheet" href="/static/css/style.css">
-</head>
+<head><meta charset="UTF-8"><title>{{.Title}}</title><link rel="stylesheet" href="/static/css/style.css"></head>
 <body>
-    <nav>
-        <a href="/">Accueil</a>
-        <span>Connecté: {{.User.Pseudo}}</span>
-        <a href="/logout">Déconnexion</a>
-    </nav>
-    <h1>Salles de jeu</h1>
-    <a href="/room/create" class="btn">Créer une salle</a>
-    <a href="/room/join" class="btn">Rejoindre avec un code</a>
-    <h2>Salles disponibles</h2>
-    <div class="rooms-list">
-        {{range .Rooms}}
-        <div class="room-card">
-            <h3>{{.Name}}</h3>
-            <p>Type: {{.GameType}}</p>
-            <p>Code: {{.Code}}</p>
-            <a href="/room/{{.Code}}">Rejoindre</a>
-        </div>
-        {{else}}
-        <p>Aucune salle disponible</p>
-        {{end}}
-    </div>
-</body>
-</html>`
+<nav class="navbar"><a href="/" class="navbar-brand">🎵 Groupie Tracker</a>
+<ul class="navbar-nav"><li><a href="/">Accueil</a></li><li><a href="/rooms">Salles</a></li></ul>
+<div class="navbar-user"><span>{{.User.Pseudo}}</span><a href="/logout" class="btn btn-sm">Déconnexion</a></div></nav>
+<div class="container"><h1>Salles de jeu</h1>
+<div class="d-flex gap-md mb-lg"><a href="/room/create" class="btn btn-success">Créer une salle</a><a href="/room/join" class="btn btn-secondary">Rejoindre avec code</a></div>
+<div class="rooms-grid">{{range .Rooms}}<div class="card room-card"><h3>{{.Name}}</h3><p>Code: {{.Code}}</p><p>Type: {{.GameType}}</p><a href="/room/{{.Code}}" class="btn btn-primary">Rejoindre</a></div>{{else}}<p>Aucune salle disponible</p>{{end}}</div>
+</div></body></html>`
 	tmpl, _ := template.New("rooms").Parse(html)
 	tmpl.Execute(w, data)
 }
@@ -550,34 +504,13 @@ func (h *Handler) renderBasicRoomsPage(w http.ResponseWriter, data map[string]in
 func (h *Handler) renderBasicCreateRoomPage(w http.ResponseWriter, data map[string]interface{}) {
 	html := `<!DOCTYPE html>
 <html lang="fr">
-<head>
-    <meta charset="UTF-8">
-    <title>{{.Title}}</title>
-    <link rel="stylesheet" href="/static/css/style.css">
-</head>
+<head><meta charset="UTF-8"><title>{{.Title}}</title><link rel="stylesheet" href="/static/css/style.css"></head>
 <body>
-    <nav>
-        <a href="/">Accueil</a>
-        <a href="/rooms">Salles</a>
-        <a href="/logout">Déconnexion</a>
-    </nav>
-    <h1>Créer une salle</h1>
-    <form method="POST">
-        <div class="form-group">
-            <label for="name">Nom de la salle</label>
-            <input type="text" id="name" name="name" required>
-        </div>
-        <div class="form-group">
-            <label for="game_type">Type de jeu</label>
-            <select id="game_type" name="game_type">
-                <option value="blindtest">🎵 Blind Test</option>
-                <option value="petitbac">🎼 Petit Bac Musical</option>
-            </select>
-        </div>
-        <button type="submit">Créer</button>
-    </form>
-</body>
-</html>`
+<nav class="navbar"><a href="/" class="navbar-brand">🎵 Groupie Tracker</a></nav>
+<div class="container container-sm"><div class="card"><h1>Créer une salle</h1>
+<form method="POST"><div class="form-group"><label>Nom de la salle</label><input type="text" name="name" class="form-control" required></div>
+<div class="form-group"><label>Type de jeu</label><select name="game_type" class="form-control"><option value="blindtest">🎧 Blind Test</option><option value="petitbac">🔤 Petit Bac</option></select></div>
+<button type="submit" class="btn btn-primary btn-lg btn-block">Créer</button></form></div></div></body></html>`
 	tmpl, _ := template.New("create_room").Parse(html)
 	tmpl.Execute(w, data)
 }
@@ -585,28 +518,13 @@ func (h *Handler) renderBasicCreateRoomPage(w http.ResponseWriter, data map[stri
 func (h *Handler) renderBasicJoinRoomPage(w http.ResponseWriter, data map[string]interface{}) {
 	html := `<!DOCTYPE html>
 <html lang="fr">
-<head>
-    <meta charset="UTF-8">
-    <title>{{.Title}}</title>
-    <link rel="stylesheet" href="/static/css/style.css">
-</head>
+<head><meta charset="UTF-8"><title>{{.Title}}</title><link rel="stylesheet" href="/static/css/style.css"></head>
 <body>
-    <nav>
-        <a href="/">Accueil</a>
-        <a href="/rooms">Salles</a>
-        <a href="/logout">Déconnexion</a>
-    </nav>
-    <h1>Rejoindre une salle</h1>
-    {{if .Error}}<div class="error">{{.Error}}</div>{{end}}
-    <form method="POST">
-        <div class="form-group">
-            <label for="code">Code de la salle</label>
-            <input type="text" id="code" name="code" placeholder="XXXXXX" maxlength="6" required>
-        </div>
-        <button type="submit">Rejoindre</button>
-    </form>
-</body>
-</html>`
+<nav class="navbar"><a href="/" class="navbar-brand">🎵 Groupie Tracker</a></nav>
+<div class="container container-sm"><div class="card"><h1>Rejoindre une salle</h1>
+{{if .Error}}<div class="alert alert-danger">{{.Error}}</div>{{end}}
+<form method="POST"><div class="form-group"><label>Code de la salle</label><input type="text" name="code" class="form-control" placeholder="XXXXXX" maxlength="6" required style="text-transform:uppercase;"></div>
+<button type="submit" class="btn btn-primary btn-lg btn-block">Rejoindre</button></form></div></div></body></html>`
 	tmpl, _ := template.New("join_room").Parse(html)
 	tmpl.Execute(w, data)
 }
@@ -614,55 +532,15 @@ func (h *Handler) renderBasicJoinRoomPage(w http.ResponseWriter, data map[string
 func (h *Handler) renderBasicRoomPage(w http.ResponseWriter, data map[string]interface{}) {
 	html := `<!DOCTYPE html>
 <html lang="fr">
-<head>
-    <meta charset="UTF-8">
-    <title>{{.Title}}</title>
-    <link rel="stylesheet" href="/static/css/style.css">
-</head>
+<head><meta charset="UTF-8"><title>{{.Title}}</title><link rel="stylesheet" href="/static/css/style.css"></head>
 <body>
-    <nav>
-        <a href="/">Accueil</a>
-        <a href="/rooms">Salles</a>
-        <a href="/logout">Déconnexion</a>
-    </nav>
-    <h1>{{.Room.Name}}</h1>
-    <p>Code: <strong>{{.Room.Code}}</strong></p>
-    <p>Type: {{.Room.GameType}}</p>
-    <p>Statut: {{.Room.Status}}</p>
-    
-    <h2>Joueurs</h2>
-    <ul id="players-list">
-        {{range $id, $player := .Room.Players}}
-        <li>
-            {{$player.Pseudo}} 
-            {{if $player.IsHost}}(Hôte){{end}}
-            {{if $player.IsReady}}✅{{else}}⏳{{end}}
-        </li>
-        {{end}}
-    </ul>
-    
-    {{if .IsHost}}
-    <div id="host-controls">
-        <h3>Configuration</h3>
-        {{if eq .Room.GameType "blindtest"}}
-        <select id="playlist">
-            <option value="Pop">Pop</option>
-            <option value="Rock">Rock</option>
-            <option value="Rap">Rap</option>
-        </select>
-        {{end}}
-        <button id="start-btn" disabled>Démarrer la partie</button>
-    </div>
-    {{end}}
-    
-    <button id="ready-btn">Je suis prêt</button>
-    
-    <script src="/static/js/websocket.js"></script>
-    <script>
-        initRoom("{{.Room.Code}}", {{.User.ID}});
-    </script>
-</body>
-</html>`
+<nav class="navbar"><a href="/" class="navbar-brand">🎵 Groupie Tracker</a></nav>
+<div class="container"><h1>{{.Room.Name}}</h1><p>Code: <strong>{{.Room.Code}}</strong></p>
+<div id="game-area"></div></div>
+<script>const ROOM_CODE="{{.Room.Code}}";const GAME_TYPE="{{.Room.GameType}}";const USER_ID={{.User.ID}};const USER_PSEUDO="{{.User.Pseudo}}";const IS_HOST={{.IsHost}};</script>
+<script src="/static/js/websocket.js"></script>
+{{if eq .Room.GameType "blindtest"}}<script src="/static/js/blindtest.js"></script>{{else}}<script src="/static/js/petitbac.js"></script>{{end}}
+</body></html>`
 	tmpl, _ := template.New("room").Parse(html)
 	tmpl.Execute(w, data)
 }

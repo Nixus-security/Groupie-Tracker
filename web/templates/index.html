@@ -1,0 +1,158 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Groupie Tracker - Jeux Musicaux Multijoueur</title>
+    <link rel="stylesheet" href="/static/style.css">
+</head>
+<body>
+    <!-- Notes musicales flottantes -->
+    <div class="floating-notes">
+        <span class="floating-note" style="left: 5%; animation-delay: 0s;">🎵</span>
+        <span class="floating-note" style="left: 20%; animation-delay: 2s;">🎶</span>
+        <span class="floating-note" style="left: 35%; animation-delay: 4s;">🎵</span>
+        <span class="floating-note" style="left: 50%; animation-delay: 6s;">🎶</span>
+        <span class="floating-note" style="left: 65%; animation-delay: 8s;">🎵</span>
+        <span class="floating-note" style="left: 80%; animation-delay: 10s;">🎶</span>
+        <span class="floating-note" style="left: 95%; animation-delay: 12s;">🎵</span>
+    </div>
+
+    <!-- Navigation -->
+    <nav class="navbar">
+        <a href="/" class="navbar-brand">
+            <span class="icon">🎵</span>
+            <span>Groupie Tracker</span>
+        </a>
+        
+        <ul class="navbar-nav">
+            <li><a href="/" class="active">Accueil</a></li>
+            <li><a href="/rooms">Salles</a></li>
+        </ul>
+
+        <div class="navbar-user">
+            {{if .User}}
+            <div class="user-info">
+                <div class="avatar">{{slice .User.Pseudo 0 1}}</div>
+                <span>{{.User.Pseudo}}</span>
+            </div>
+            <a href="/logout" class="btn btn-secondary btn-sm">Déconnexion</a>
+            {{else}}
+            <a href="/login" class="btn btn-primary btn-sm">Connexion</a>
+            {{end}}
+        </div>
+    </nav>
+
+    <!-- Hero Section -->
+    <div class="container">
+        <div class="text-center" style="padding: 64px 0;">
+            <h1 style="font-size: 3.5rem; margin-bottom: 16px;">
+                <span style="background: var(--gradient-primary); -webkit-background-clip: text; -webkit-text-fill-color: transparent; background-clip: text;">
+                    Groupie Tracker
+                </span>
+            </h1>
+            <p style="font-size: 1.5rem; color: var(--gray); margin-bottom: 48px;">
+                Plateforme de jeux musicaux multijoueur
+            </p>
+
+            {{if .User}}
+            <div class="d-flex gap-md justify-center" style="flex-wrap: wrap;">
+                <a href="/rooms" class="btn btn-primary btn-lg">
+                    <span>🎮</span>
+                    <span>Voir les salles</span>
+                </a>
+                <a href="/room/create" class="btn btn-success btn-lg">
+                    <span>➕</span>
+                    <span>Créer une salle</span>
+                </a>
+                <a href="/room/join" class="btn btn-secondary btn-lg">
+                    <span>🔑</span>
+                    <span>Rejoindre avec code</span>
+                </a>
+            </div>
+            {{else}}
+            <div class="d-flex gap-md justify-center">
+                <a href="/login" class="btn btn-primary btn-lg">
+                    <span>🔐</span>
+                    <span>Connexion</span>
+                </a>
+                <a href="/register" class="btn btn-secondary btn-lg">
+                    <span>📝</span>
+                    <span>Inscription</span>
+                </a>
+            </div>
+            <p class="text-muted mt-lg">Connectez-vous pour commencer à jouer !</p>
+            {{end}}
+        </div>
+
+        <!-- Jeux disponibles -->
+        <h2 class="text-center mb-lg">🎮 Nos jeux</h2>
+        
+        <div class="d-grid gap-lg" style="grid-template-columns: repeat(auto-fit, minmax(350px, 1fr)); margin-bottom: 64px;">
+            <!-- Blind Test -->
+            <div class="card game-card">
+                <div class="game-icon">🎧</div>
+                <h3>Blind Test</h3>
+                <p class="text-muted">
+                    Devinez le titre ou l'artiste à partir d'extraits musicaux de 30 secondes !
+                </p>
+                <ul style="list-style: none; margin-top: 16px; color: var(--gray);">
+                    <li style="padding: 8px 0;">🎵 Playlists : Pop, Rock, Rap</li>
+                    <li style="padding: 8px 0;">⏱️ 37 secondes par manche</li>
+                    <li style="padding: 8px 0;">🏆 Points selon la rapidité</li>
+                    <li style="padding: 8px 0;">👥 2 à 8 joueurs</li>
+                </ul>
+            </div>
+
+            <!-- Petit Bac Musical -->
+            <div class="card game-card">
+                <div class="game-icon">🔤</div>
+                <h3>Petit Bac Musical</h3>
+                <p class="text-muted">
+                    Trouvez des mots du monde musical commençant par la lettre tirée au sort !
+                </p>
+                <ul style="list-style: none; margin-top: 16px; color: var(--gray);">
+                    <li style="padding: 8px 0;">🔤 Une lettre aléatoire par manche</li>
+                    <li style="padding: 8px 0;">📝 5 catégories : Artiste, Album, Groupe, Instrument, Featuring</li>
+                    <li style="padding: 8px 0;">🗳️ Validation collective des réponses</li>
+                    <li style="padding: 8px 0;">🎯 9 manches par partie</li>
+                </ul>
+            </div>
+        </div>
+
+        <!-- Comment jouer -->
+        <h2 class="text-center mb-lg">📖 Comment jouer ?</h2>
+        
+        <div class="d-grid gap-md" style="grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); margin-bottom: 64px;">
+            <div class="card text-center">
+                <div style="font-size: 3rem; margin-bottom: 16px;">1️⃣</div>
+                <h4>Créez un compte</h4>
+                <p class="text-muted">Inscrivez-vous en quelques secondes</p>
+            </div>
+            <div class="card text-center">
+                <div style="font-size: 3rem; margin-bottom: 16px;">2️⃣</div>
+                <h4>Créez ou rejoignez</h4>
+                <p class="text-muted">Créez une salle ou rejoignez-en une avec un code</p>
+            </div>
+            <div class="card text-center">
+                <div style="font-size: 3rem; margin-bottom: 16px;">3️⃣</div>
+                <h4>Invitez vos amis</h4>
+                <p class="text-muted">Partagez le code de la salle</p>
+            </div>
+            <div class="card text-center">
+                <div style="font-size: 3rem; margin-bottom: 16px;">4️⃣</div>
+                <h4>Jouez !</h4>
+                <p class="text-muted">Que le meilleur gagne 🏆</p>
+            </div>
+        </div>
+    </div>
+
+    <!-- Footer -->
+    <footer style="text-align: center; padding: 32px; color: var(--gray); border-top: 1px solid rgba(255,255,255,0.1);">
+        <p>© 2024 Groupie Tracker - Projet Go</p>
+        <p style="font-size: 0.875rem; margin-top: 8px;">
+            Fait avec ❤️ et beaucoup de 🎵
+        </p>
+    </footer>
+</body>
+</html>

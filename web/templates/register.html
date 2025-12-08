@@ -1,0 +1,270 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>{{.Title}} - Groupie Tracker</title>
+    <link rel="stylesheet" href="/static/style.css">
+</head>
+<body>
+    <!-- Notes musicales flottantes -->
+    <div class="floating-notes">
+        <span class="floating-note" style="left: 15%; animation-delay: 1s;">🎵</span>
+        <span class="floating-note" style="left: 30%; animation-delay: 4s;">🎶</span>
+        <span class="floating-note" style="left: 50%; animation-delay: 7s;">🎵</span>
+        <span class="floating-note" style="left: 65%; animation-delay: 10s;">🎶</span>
+        <span class="floating-note" style="left: 80%; animation-delay: 13s;">🎵</span>
+    </div>
+
+    <div class="auth-page">
+        <div class="auth-container">
+            <div class="auth-card">
+                <!-- Logo -->
+                <div class="auth-logo">
+                    <span class="logo-icon">🎶</span>
+                    <h1>Groupie Tracker</h1>
+                    <p>Créer votre compte</p>
+                </div>
+
+                <!-- Message d'erreur -->
+                {{if .Error}}
+                <div class="alert alert-danger">
+                    <span>⚠️</span>
+                    <span>{{.Error}}</span>
+                </div>
+                {{end}}
+
+                <!-- Formulaire d'inscription -->
+                <form action="/register" method="POST" id="registerForm">
+                    <div class="form-group">
+                        <label class="form-label" for="pseudo">Pseudo</label>
+                        <div class="input-group">
+                            <span class="input-icon">👤</span>
+                            <input 
+                                type="text" 
+                                class="form-control" 
+                                id="pseudo" 
+                                name="pseudo" 
+                                placeholder="Choisissez un pseudo"
+                                required
+                                minlength="3"
+                                autocomplete="username"
+                            >
+                        </div>
+                        <div class="form-text" id="pseudoHelp">
+                            Minimum 3 caractères, doit contenir au moins une majuscule
+                        </div>
+                    </div>
+
+                    <div class="form-group">
+                        <label class="form-label" for="email">Email</label>
+                        <div class="input-group">
+                            <span class="input-icon">📧</span>
+                            <input 
+                                type="email" 
+                                class="form-control" 
+                                id="email" 
+                                name="email" 
+                                placeholder="votre@email.com"
+                                required
+                                autocomplete="email"
+                            >
+                        </div>
+                    </div>
+
+                    <div class="form-group">
+                        <label class="form-label" for="password">Mot de passe</label>
+                        <div class="input-group">
+                            <span class="input-icon">🔒</span>
+                            <input 
+                                type="password" 
+                                class="form-control" 
+                                id="password" 
+                                name="password" 
+                                placeholder="Créez un mot de passe sécurisé"
+                                required
+                                minlength="12"
+                                autocomplete="new-password"
+                            >
+                        </div>
+                        <!-- Indicateur de force du mot de passe -->
+                        <div class="password-strength">
+                            <div class="password-strength-bar">
+                                <div class="password-strength-fill" id="strengthFill"></div>
+                            </div>
+                            <div class="password-strength-text" id="strengthText">
+                                Minimum 12 caractères
+                            </div>
+                        </div>
+                    </div>
+
+                    <div class="form-group">
+                        <label class="form-label" for="confirmPassword">Confirmer le mot de passe</label>
+                        <div class="input-group">
+                            <span class="input-icon">🔒</span>
+                            <input 
+                                type="password" 
+                                class="form-control" 
+                                id="confirmPassword" 
+                                name="confirmPassword" 
+                                placeholder="Confirmez votre mot de passe"
+                                required
+                                autocomplete="new-password"
+                            >
+                        </div>
+                        <div class="form-text" id="confirmHelp"></div>
+                    </div>
+
+                    <button type="submit" class="btn btn-primary btn-lg btn-block" id="submitBtn">
+                        <span>Créer mon compte</span>
+                        <span>→</span>
+                    </button>
+                </form>
+
+                <!-- Lien vers connexion -->
+                <div class="auth-footer">
+                    <p>Déjà un compte ?</p>
+                    <a href="/login" class="btn btn-outline">Se connecter</a>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        const form = document.getElementById('registerForm');
+        const pseudoInput = document.getElementById('pseudo');
+        const emailInput = document.getElementById('email');
+        const passwordInput = document.getElementById('password');
+        const confirmInput = document.getElementById('confirmPassword');
+        const strengthFill = document.getElementById('strengthFill');
+        const strengthText = document.getElementById('strengthText');
+        const pseudoHelp = document.getElementById('pseudoHelp');
+        const confirmHelp = document.getElementById('confirmHelp');
+        const submitBtn = document.getElementById('submitBtn');
+
+        // Validation du pseudo
+        pseudoInput.addEventListener('input', function() {
+            const value = this.value;
+            const hasUppercase = /[A-Z]/.test(value);
+            const isLongEnough = value.length >= 3;
+
+            if (isLongEnough && hasUppercase) {
+                this.classList.remove('is-invalid');
+                this.classList.add('is-valid');
+                pseudoHelp.className = 'form-text text-success';
+                pseudoHelp.textContent = '✓ Pseudo valide';
+            } else {
+                this.classList.remove('is-valid');
+                this.classList.add('is-invalid');
+                pseudoHelp.className = 'form-text text-danger';
+                if (!isLongEnough) {
+                    pseudoHelp.textContent = '✗ Minimum 3 caractères';
+                } else {
+                    pseudoHelp.textContent = '✗ Doit contenir au moins une majuscule';
+                }
+            }
+        });
+
+        // Indicateur de force du mot de passe
+        passwordInput.addEventListener('input', function() {
+            const password = this.value;
+            let strength = 0;
+            let feedback = [];
+
+            if (password.length >= 12) strength++;
+            else feedback.push('12 caractères minimum');
+
+            if (/[a-z]/.test(password)) strength++;
+            else feedback.push('une minuscule');
+
+            if (/[A-Z]/.test(password)) strength++;
+            else feedback.push('une majuscule');
+
+            if (/[0-9]/.test(password)) strength++;
+            else feedback.push('un chiffre');
+
+            if (/[^a-zA-Z0-9]/.test(password)) strength++;
+            else feedback.push('un caractère spécial');
+
+            // Mise à jour visuelle
+            strengthFill.className = 'password-strength-fill';
+            if (strength <= 1) {
+                strengthFill.classList.add('weak');
+                strengthText.textContent = 'Faible - Ajoutez: ' + feedback.slice(0, 2).join(', ');
+                strengthText.style.color = 'var(--danger)';
+            } else if (strength <= 2) {
+                strengthFill.classList.add('fair');
+                strengthText.textContent = 'Moyen - Ajoutez: ' + feedback.slice(0, 2).join(', ');
+                strengthText.style.color = 'var(--warning)';
+            } else if (strength <= 3) {
+                strengthFill.classList.add('good');
+                strengthText.textContent = 'Bon';
+                strengthText.style.color = 'var(--info)';
+            } else {
+                strengthFill.classList.add('strong');
+                strengthText.textContent = '✓ Excellent !';
+                strengthText.style.color = 'var(--success)';
+            }
+
+            // Vérifier la correspondance
+            checkPasswordMatch();
+        });
+
+        // Vérification de correspondance des mots de passe
+        confirmInput.addEventListener('input', checkPasswordMatch);
+
+        function checkPasswordMatch() {
+            const password = passwordInput.value;
+            const confirm = confirmInput.value;
+
+            if (confirm.length === 0) {
+                confirmInput.classList.remove('is-valid', 'is-invalid');
+                confirmHelp.textContent = '';
+                return;
+            }
+
+            if (password === confirm) {
+                confirmInput.classList.remove('is-invalid');
+                confirmInput.classList.add('is-valid');
+                confirmHelp.className = 'form-text text-success';
+                confirmHelp.textContent = '✓ Les mots de passe correspondent';
+            } else {
+                confirmInput.classList.remove('is-valid');
+                confirmInput.classList.add('is-invalid');
+                confirmHelp.className = 'form-text text-danger';
+                confirmHelp.textContent = '✗ Les mots de passe ne correspondent pas';
+            }
+        }
+
+        // Validation du formulaire
+        form.addEventListener('submit', function(e) {
+            const pseudo = pseudoInput.value;
+            const password = passwordInput.value;
+            const confirm = confirmInput.value;
+
+            // Vérifications
+            if (pseudo.length < 3 || !/[A-Z]/.test(pseudo)) {
+                e.preventDefault();
+                pseudoInput.focus();
+                return;
+            }
+
+            if (password.length < 12) {
+                e.preventDefault();
+                passwordInput.focus();
+                return;
+            }
+
+            if (password !== confirm) {
+                e.preventDefault();
+                confirmInput.focus();
+                return;
+            }
+
+            // Animation de chargement
+            submitBtn.disabled = true;
+            submitBtn.innerHTML = '<span class="spinner spinner-sm"></span> Création...';
+        });
+    </script>
+</body>
+</html>
