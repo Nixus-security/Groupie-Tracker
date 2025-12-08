@@ -1,129 +1,368 @@
+// Package spotify gère l'intégration avec l'API Spotify
 package spotify
-package websocket
 
-type MessageType string
+import (
+	"encoding/base64"
+	"encoding/json"
+	"errors"
+	"fmt"
+	"io"
+	"log"
+	"math/rand"
+	"net/http"
+	"net/url"
+	"strings"
+	"sync"
+	"time"
 
-const (
-	TypeUserJoined      MessageType = "user_joined"
-	TypeUserLeft        MessageType = "user_left"
-	TypeChat            MessageType = "chat"
-	TypePlayerReady     MessageType = "player_ready"
-	TypeGameStarting    MessageType = "game_starting"
-	TypeRoundStart      MessageType = "round_start"
-	TypeRoundEnd        MessageType = "round_end"
-	TypeAnswerSubmitted MessageType = "answer_submitted"
-	TypeVotingStart     MessageType = "voting_start"
-	TypeVoteUpdate      MessageType = "vote_update"
-	TypeShowAnswers     MessageType = "show_answers"
-	TypeGameEnd         MessageType = "game_end"
-	TypeError           MessageType = "error"
-	TypePong            MessageType = "pong"
+	"groupie-tracker/internal/models"
 )
 
-type UserJoinedMessage struct {
-	Type   MessageType `json:"type"`
-	UserID int64       `json:"user_id"`
-	Pseudo string      `json:"pseudo"`
-	Count  int         `json:"count"`
+var (
+	ErrNoToken       = errors.New("pas de token Spotify valide")
+	ErrNoTracks      = errors.New("aucune piste trouvée")
+	ErrNoPreviewURL  = errors.New("pas d'URL de prévisualisation")
+	ErrPlaylistEmpty = errors.New("playlist vide")
+)
+
+// Config configuration du client Spotify
+type Config struct {
+	ClientID     string
+	ClientSecret string
 }
 
-type UserLeftMessage struct {
-	Type   MessageType `json:"type"`
-	UserID int64       `json:"user_id"`
-	Pseudo string      `json:"pseudo"`
-	Count  int         `json:"count"`
+// Client gère les appels à l'API Spotify
+type Client struct {
+	config       Config
+	httpClient   *http.Client
+	accessToken  string
+	tokenExpiry  time.Time
+	mutex        sync.RWMutex
 }
 
-type ChatMessage struct {
-	Type    MessageType `json:"type"`
-	UserID  int64       `json:"user_id"`
-	Pseudo  string      `json:"pseudo"`
-	Message string      `json:"message"`
+// Playlists IDs par genre (playlists publiques Spotify)
+var PlaylistsByGenre = map[string][]string{
+	"Pop": {
+		"37i9dQZF1DXcBWIGoYBM5M", // Today's Top Hits
+		"37i9dQZF1DX0kbJZpiYdZl", // Hot Hits France
+		"37i9dQZF1DWUa8ZRTfalHk", // Pop Rising
+	},
+	"Rock": {
+		"37i9dQZF1DWXRqgorJj26U", // Rock Classics
+		"37i9dQZF1DX1lVhptIYRda", // Hot Hits Rock
+		"37i9dQZF1DWZryfp6NSvtz", // Rock This
+	},
+	"Rap": {
+		"37i9dQZF1DX0XUsuxWHRQd", // RapCaviar
+		"37i9dQZF1DWU4xkXueiKGW", // Rap France
+		"37i9dQZF1DX6GwdWRQMQpq", // Rap UK
+	},
 }
 
-type RoundStartMessage struct {
-	Type        MessageType `json:"type"`
-	Round       int         `json:"round"`
-	TotalRounds int         `json:"total_rounds"`
-	Time        int         `json:"time"`
-	PreviewURL  string      `json:"preview_url,omitempty"`
-	Letter      string      `json:"letter,omitempty"`
-	Categories  []int64     `json:"categories,omitempty"`
+// instance singleton
+var (
+	clientInstance *Client
+	clientOnce     sync.Once
+)
+
+// NewClient crée ou retourne le client Spotify singleton
+func NewClient(config Config) *Client {
+	clientOnce.Do(func() {
+		clientInstance = &Client{
+			config: config,
+			httpClient: &http.Client{
+				Timeout: 10 * time.Second,
+			},
+		}
+	})
+	return clientInstance
 }
 
-type RoundEndMessage struct {
-	Type   MessageType    `json:"type"`
-	Round  int            `json:"round"`
-	Scores map[int64]int  `json:"scores"`
-	Track  *TrackInfo     `json:"track,omitempty"`
+// GetClient retourne l'instance du client Spotify
+func GetClient() *Client {
+	return clientInstance
 }
 
-type TrackInfo struct {
-	Name   string `json:"name"`
-	Artist string `json:"artist"`
-	Album  string `json:"album"`
-	Image  string `json:"image"`
-}
+// ============================================================================
+// AUTHENTIFICATION
+// ============================================================================
 
-type AnswerSubmittedMessage struct {
-	Type         MessageType `json:"type"`
-	UserID       int64       `json:"user_id"`
-	Pseudo       string      `json:"pseudo"`
-	IsCorrect    bool        `json:"is_correct,omitempty"`
-	Points       int         `json:"points,omitempty"`
-	ResponseTime int64       `json:"response_time,omitempty"`
-}
+// Authenticate s'authentifie auprès de l'API Spotify (Client Credentials Flow)
+func (c *Client) Authenticate() error {
+	c.mutex.Lock()
+	defer c.mutex.Unlock()
 
-type VotingStartMessage struct {
-	Type  MessageType `json:"type"`
-	Round int         `json:"round"`
-}
-
-type VoteUpdateMessage struct {
-	Type         MessageType `json:"type"`
-	AnswerID     int64       `json:"answer_id"`
-	VotesValid   int         `json:"votes_valid"`
-	VotesInvalid int         `json:"votes_invalid"`
-	IsValidated  bool        `json:"is_validated"`
-}
-
-type ShowAnswersMessage struct {
-	Type    MessageType   `json:"type"`
-	Answers []AnswerInfo  `json:"answers"`
-}
-
-type AnswerInfo struct {
-	ID           int64  `json:"id"`
-	UserID       int64  `json:"user_id"`
-	Pseudo       string `json:"pseudo"`
-	CategoryID   int64  `json:"category_id"`
-	CategoryName string `json:"category_name"`
-	Answer       string `json:"answer"`
-	VotesValid   int    `json:"votes_valid"`
-	VotesInvalid int    `json:"votes_invalid"`
-	IsValidated  bool   `json:"is_validated"`
-}
-
-type GameEndMessage struct {
-	Type       MessageType      `json:"type"`
-	Scoreboard []ScoreboardItem `json:"scoreboard"`
-}
-
-type ScoreboardItem struct {
-	Rank       int    `json:"rank"`
-	UserID     int64  `json:"user_id"`
-	Pseudo     string `json:"pseudo"`
-	TotalScore int    `json:"total_score"`
-}
-
-type ErrorMessage struct {
-	Type    MessageType `json:"type"`
-	Message string      `json:"message"`
-}
-
-func NewError(message string) ErrorMessage {
-	return ErrorMessage{
-		Type:    TypeError,
-		Message: message,
+	// Vérifier si le token est encore valide
+	if c.accessToken != "" && time.Now().Before(c.tokenExpiry) {
+		return nil
 	}
+
+	// Préparer la requête
+	data := url.Values{}
+	data.Set("grant_type", "client_credentials")
+
+	req, err := http.NewRequest("POST", "https://accounts.spotify.com/api/token", strings.NewReader(data.Encode()))
+	if err != nil {
+		return err
+	}
+
+	// Headers d'authentification Basic
+	auth := base64.StdEncoding.EncodeToString([]byte(c.config.ClientID + ":" + c.config.ClientSecret))
+	req.Header.Set("Authorization", "Basic "+auth)
+	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+
+	resp, err := c.httpClient.Do(req)
+	if err != nil {
+		return err
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK {
+		body, _ := io.ReadAll(resp.Body)
+		return fmt.Errorf("erreur Spotify auth: %s - %s", resp.Status, string(body))
+	}
+
+	var result struct {
+		AccessToken string `json:"access_token"`
+		TokenType   string `json:"token_type"`
+		ExpiresIn   int    `json:"expires_in"`
+	}
+
+	if err := json.NewDecoder(resp.Body).Decode(&result); err != nil {
+		return err
+	}
+
+	c.accessToken = result.AccessToken
+	c.tokenExpiry = time.Now().Add(time.Duration(result.ExpiresIn-60) * time.Second)
+
+	log.Println("✅ Token Spotify obtenu, expire dans", result.ExpiresIn, "secondes")
+	return nil
+}
+
+// getToken retourne le token d'accès, en le renouvelant si nécessaire
+func (c *Client) getToken() (string, error) {
+	c.mutex.RLock()
+	if c.accessToken != "" && time.Now().Before(c.tokenExpiry) {
+		token := c.accessToken
+		c.mutex.RUnlock()
+		return token, nil
+	}
+	c.mutex.RUnlock()
+
+	// Token expiré, le renouveler
+	if err := c.Authenticate(); err != nil {
+		return "", err
+	}
+
+	c.mutex.RLock()
+	defer c.mutex.RUnlock()
+	return c.accessToken, nil
+}
+
+// ============================================================================
+// API SPOTIFY
+// ============================================================================
+
+// GetPlaylistTracks récupère les pistes d'une playlist
+func (c *Client) GetPlaylistTracks(playlistID string, limit int) ([]*models.SpotifyTrack, error) {
+	token, err := c.getToken()
+	if err != nil {
+		return nil, err
+	}
+
+	url := fmt.Sprintf("https://api.spotify.com/v1/playlists/%s/tracks?limit=%d&fields=items(track(id,name,artists,album,preview_url))", playlistID, limit)
+
+	req, err := http.NewRequest("GET", url, nil)
+	if err != nil {
+		return nil, err
+	}
+	req.Header.Set("Authorization", "Bearer "+token)
+
+	resp, err := c.httpClient.Do(req)
+	if err != nil {
+		return nil, err
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK {
+		body, _ := io.ReadAll(resp.Body)
+		return nil, fmt.Errorf("erreur Spotify: %s - %s", resp.Status, string(body))
+	}
+
+	var result struct {
+		Items []struct {
+			Track struct {
+				ID      string `json:"id"`
+				Name    string `json:"name"`
+				Artists []struct {
+					Name string `json:"name"`
+				} `json:"artists"`
+				Album struct {
+					Name   string `json:"name"`
+					Images []struct {
+						URL string `json:"url"`
+					} `json:"images"`
+				} `json:"album"`
+				PreviewURL string `json:"preview_url"`
+			} `json:"track"`
+		} `json:"items"`
+	}
+
+	if err := json.NewDecoder(resp.Body).Decode(&result); err != nil {
+		return nil, err
+	}
+
+	var tracks []*models.SpotifyTrack
+	for _, item := range result.Items {
+		// Ignorer les pistes sans URL de prévisualisation
+		if item.Track.PreviewURL == "" {
+			continue
+		}
+
+		artistNames := make([]string, len(item.Track.Artists))
+		for i, a := range item.Track.Artists {
+			artistNames[i] = a.Name
+		}
+
+		imageURL := ""
+		if len(item.Track.Album.Images) > 0 {
+			imageURL = item.Track.Album.Images[0].URL
+		}
+
+		tracks = append(tracks, &models.SpotifyTrack{
+			ID:         item.Track.ID,
+			Name:       item.Track.Name,
+			Artist:     strings.Join(artistNames, ", "),
+			Album:      item.Track.Album.Name,
+			PreviewURL: item.Track.PreviewURL,
+			ImageURL:   imageURL,
+		})
+	}
+
+	if len(tracks) == 0 {
+		return nil, ErrNoTracks
+	}
+
+	return tracks, nil
+}
+
+// GetRandomTracksForBlindTest récupère des pistes aléatoires pour un Blind Test
+func (c *Client) GetRandomTracksForBlindTest(genre string, count int) ([]*models.SpotifyTrack, error) {
+	playlists, ok := PlaylistsByGenre[genre]
+	if !ok {
+		// Genre par défaut
+		playlists = PlaylistsByGenre["Pop"]
+	}
+
+	// Récupérer des pistes de plusieurs playlists
+	var allTracks []*models.SpotifyTrack
+	for _, playlistID := range playlists {
+		tracks, err := c.GetPlaylistTracks(playlistID, 50)
+		if err != nil {
+			log.Printf("⚠️ Erreur playlist %s: %v", playlistID, err)
+			continue
+		}
+		allTracks = append(allTracks, tracks...)
+	}
+
+	if len(allTracks) == 0 {
+		return nil, ErrNoTracks
+	}
+
+	// Mélanger les pistes
+	rand.Seed(time.Now().UnixNano())
+	rand.Shuffle(len(allTracks), func(i, j int) {
+		allTracks[i], allTracks[j] = allTracks[j], allTracks[i]
+	})
+
+	// Limiter au nombre demandé
+	if count > len(allTracks) {
+		count = len(allTracks)
+	}
+
+	return allTracks[:count], nil
+}
+
+// SearchTrack recherche une piste par nom
+func (c *Client) SearchTrack(query string) ([]*models.SpotifyTrack, error) {
+	token, err := c.getToken()
+	if err != nil {
+		return nil, err
+	}
+
+	encodedQuery := url.QueryEscape(query)
+	apiURL := fmt.Sprintf("https://api.spotify.com/v1/search?q=%s&type=track&limit=10", encodedQuery)
+
+	req, err := http.NewRequest("GET", apiURL, nil)
+	if err != nil {
+		return nil, err
+	}
+	req.Header.Set("Authorization", "Bearer "+token)
+
+	resp, err := c.httpClient.Do(req)
+	if err != nil {
+		return nil, err
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK {
+		body, _ := io.ReadAll(resp.Body)
+		return nil, fmt.Errorf("erreur recherche Spotify: %s - %s", resp.Status, string(body))
+	}
+
+	var result struct {
+		Tracks struct {
+			Items []struct {
+				ID      string `json:"id"`
+				Name    string `json:"name"`
+				Artists []struct {
+					Name string `json:"name"`
+				} `json:"artists"`
+				Album struct {
+					Name   string `json:"name"`
+					Images []struct {
+						URL string `json:"url"`
+					} `json:"images"`
+				} `json:"album"`
+				PreviewURL string `json:"preview_url"`
+			} `json:"items"`
+		} `json:"tracks"`
+	}
+
+	if err := json.NewDecoder(resp.Body).Decode(&result); err != nil {
+		return nil, err
+	}
+
+	var tracks []*models.SpotifyTrack
+	for _, item := range result.Tracks.Items {
+		artistNames := make([]string, len(item.Artists))
+		for i, a := range item.Artists {
+			artistNames[i] = a.Name
+		}
+
+		imageURL := ""
+		if len(item.Album.Images) > 0 {
+			imageURL = item.Album.Images[0].URL
+		}
+
+		tracks = append(tracks, &models.SpotifyTrack{
+			ID:         item.ID,
+			Name:       item.Name,
+			Artist:     strings.Join(artistNames, ", "),
+			Album:      item.Album.Name,
+			PreviewURL: item.PreviewURL,
+			ImageURL:   imageURL,
+		})
+	}
+
+	return tracks, nil
+}
+
+// GetAvailableGenres retourne les genres disponibles
+func GetAvailableGenres() []string {
+	genres := make([]string, 0, len(PlaylistsByGenre))
+	for genre := range PlaylistsByGenre {
+		genres = append(genres, genre)
+	}
+	return genres
 }

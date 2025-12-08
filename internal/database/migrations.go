@@ -1,133 +1,160 @@
+// Package database - migrations.go
+// Gère la création et mise à jour des tables SQLite
 package database
 
-import "log"
+import (
+	"log"
+)
 
+// RunMigrations exécute toutes les migrations
 func RunMigrations() error {
-	migrations := []string{
-		createUsersTable,
-		createSessionsTable,
-		createRoomsTable,
-		createRoomPlayersTable,
-		createGamesTable,
-		createScoresTable,
-		createCategoriesTable,
-		createPetitBacAnswersTable,
-		insertDefaultCategories,
+	migrations := []struct {
+		name string
+		sql  string
+	}{
+		{
+			name: "create_users_table",
+			sql: `
+				CREATE TABLE IF NOT EXISTS users (
+					id INTEGER PRIMARY KEY AUTOINCREMENT,
+					pseudo TEXT NOT NULL UNIQUE,
+					email TEXT NOT NULL UNIQUE,
+					password_hash TEXT NOT NULL,
+					created_at DATETIME DEFAULT CURRENT_TIMESTAMP
+				);
+				CREATE INDEX IF NOT EXISTS idx_users_pseudo ON users(pseudo);
+				CREATE INDEX IF NOT EXISTS idx_users_email ON users(email);
+			`,
+		},
+		{
+			name: "create_sessions_table",
+			sql: `
+				CREATE TABLE IF NOT EXISTS sessions (
+					id TEXT PRIMARY KEY,
+					user_id INTEGER NOT NULL,
+					created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+					expires_at DATETIME NOT NULL,
+					FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
+				);
+				CREATE INDEX IF NOT EXISTS idx_sessions_user_id ON sessions(user_id);
+				CREATE INDEX IF NOT EXISTS idx_sessions_expires_at ON sessions(expires_at);
+			`,
+		},
+		{
+			name: "create_rooms_table",
+			sql: `
+				CREATE TABLE IF NOT EXISTS rooms (
+					id TEXT PRIMARY KEY,
+					code TEXT NOT NULL UNIQUE,
+					name TEXT NOT NULL,
+					host_id INTEGER NOT NULL,
+					game_type TEXT NOT NULL,
+					status TEXT DEFAULT 'waiting',
+					config TEXT, -- JSON stocké
+					created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+					FOREIGN KEY (host_id) REFERENCES users(id) ON DELETE CASCADE
+				);
+				CREATE INDEX IF NOT EXISTS idx_rooms_code ON rooms(code);
+				CREATE INDEX IF NOT EXISTS idx_rooms_status ON rooms(status);
+			`,
+		},
+		{
+			name: "create_room_players_table",
+			sql: `
+				CREATE TABLE IF NOT EXISTS room_players (
+					id INTEGER PRIMARY KEY AUTOINCREMENT,
+					room_id TEXT NOT NULL,
+					user_id INTEGER NOT NULL,
+					score INTEGER DEFAULT 0,
+					is_host BOOLEAN DEFAULT 0,
+					joined_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+					FOREIGN KEY (room_id) REFERENCES rooms(id) ON DELETE CASCADE,
+					FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE,
+					UNIQUE(room_id, user_id)
+				);
+			`,
+		},
+		{
+			name: "create_game_scores_table",
+			sql: `
+				CREATE TABLE IF NOT EXISTS game_scores (
+					id INTEGER PRIMARY KEY AUTOINCREMENT,
+					room_id TEXT NOT NULL,
+					user_id INTEGER NOT NULL,
+					game_type TEXT NOT NULL,
+					score INTEGER DEFAULT 0,
+					round_scores TEXT, -- JSON des scores par manche
+					created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+					FOREIGN KEY (room_id) REFERENCES rooms(id) ON DELETE CASCADE,
+					FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
+				);
+				CREATE INDEX IF NOT EXISTS idx_game_scores_room ON game_scores(room_id);
+				CREATE INDEX IF NOT EXISTS idx_game_scores_user ON game_scores(user_id);
+			`,
+		},
+		{
+			name: "create_petitbac_categories_table",
+			sql: `
+				CREATE TABLE IF NOT EXISTS petitbac_categories (
+					id INTEGER PRIMARY KEY AUTOINCREMENT,
+					name TEXT NOT NULL UNIQUE,
+					is_default BOOLEAN DEFAULT 0,
+					created_at DATETIME DEFAULT CURRENT_TIMESTAMP
+				);
+				-- Insérer les catégories par défaut
+				INSERT OR IGNORE INTO petitbac_categories (name, is_default) VALUES 
+					('artiste', 1),
+					('album', 1),
+					('groupe', 1),
+					('instrument', 1),
+					('featuring', 1);
+			`,
+		},
+		{
+			name: "create_spotify_tokens_table",
+			sql: `
+				CREATE TABLE IF NOT EXISTS spotify_tokens (
+					id INTEGER PRIMARY KEY AUTOINCREMENT,
+					access_token TEXT NOT NULL,
+					refresh_token TEXT,
+					expires_at DATETIME NOT NULL,
+					created_at DATETIME DEFAULT CURRENT_TIMESTAMP
+				);
+			`,
+		},
 	}
 
 	for _, m := range migrations {
-		if _, err := db.Exec(m); err != nil {
-			log.Printf("Erreur migration: %v", err)
+		log.Printf("📦 Exécution migration: %s", m.name)
+		_, err := db.Exec(m.sql)
+		if err != nil {
+			log.Printf("❌ Erreur migration %s: %v", m.name, err)
 			return err
 		}
 	}
 
+	log.Println("✅ Toutes les migrations exécutées avec succès")
 	return nil
 }
 
-const createUsersTable = `
-CREATE TABLE IF NOT EXISTS users (
-	id INTEGER PRIMARY KEY AUTOINCREMENT,
-	pseudo TEXT NOT NULL UNIQUE,
-	email TEXT NOT NULL UNIQUE,
-	password_hash TEXT NOT NULL,
-	created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
-	CHECK (pseudo GLOB '[A-Z]*')
-)`
+// ResetDatabase supprime toutes les tables (pour tests)
+func ResetDatabase() error {
+	tables := []string{
+		"game_scores",
+		"room_players",
+		"rooms",
+		"sessions",
+		"petitbac_categories",
+		"spotify_tokens",
+		"users",
+	}
 
-const createSessionsTable = `
-CREATE TABLE IF NOT EXISTS sessions (
-	id INTEGER PRIMARY KEY AUTOINCREMENT,
-	user_id INTEGER NOT NULL,
-	token TEXT NOT NULL UNIQUE,
-	expires_at DATETIME NOT NULL,
-	created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
-	FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
-)`
+	for _, table := range tables {
+		_, err := db.Exec("DROP TABLE IF EXISTS " + table)
+		if err != nil {
+			return err
+		}
+	}
 
-const createRoomsTable = `
-CREATE TABLE IF NOT EXISTS rooms (
-	id INTEGER PRIMARY KEY AUTOINCREMENT,
-	code TEXT NOT NULL UNIQUE,
-	creator_id INTEGER NOT NULL,
-	game_type TEXT NOT NULL CHECK (game_type IN ('blindtest', 'petitbac')),
-	status TEXT NOT NULL DEFAULT 'waiting' CHECK (status IN ('waiting', 'playing', 'finished')),
-	config TEXT DEFAULT '{}',
-	created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
-	FOREIGN KEY (creator_id) REFERENCES users(id) ON DELETE CASCADE
-)`
-
-const createRoomPlayersTable = `
-CREATE TABLE IF NOT EXISTS room_players (
-	id INTEGER PRIMARY KEY AUTOINCREMENT,
-	room_id INTEGER NOT NULL,
-	user_id INTEGER NOT NULL,
-	joined_at DATETIME DEFAULT CURRENT_TIMESTAMP,
-	UNIQUE (room_id, user_id),
-	FOREIGN KEY (room_id) REFERENCES rooms(id) ON DELETE CASCADE,
-	FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
-)`
-
-const createGamesTable = `
-CREATE TABLE IF NOT EXISTS games (
-	id INTEGER PRIMARY KEY AUTOINCREMENT,
-	room_id INTEGER NOT NULL,
-	game_type TEXT NOT NULL CHECK (game_type IN ('blindtest', 'petitbac')),
-	current_round INTEGER DEFAULT 1,
-	total_rounds INTEGER NOT NULL,
-	status TEXT DEFAULT 'pending' CHECK (status IN ('pending', 'active', 'voting', 'finished')),
-	used_letters TEXT DEFAULT '',
-	config TEXT DEFAULT '{}',
-	created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
-	FOREIGN KEY (room_id) REFERENCES rooms(id) ON DELETE CASCADE
-)`
-
-const createScoresTable = `
-CREATE TABLE IF NOT EXISTS scores (
-	id INTEGER PRIMARY KEY AUTOINCREMENT,
-	game_id INTEGER NOT NULL,
-	user_id INTEGER NOT NULL,
-	points INTEGER DEFAULT 0,
-	round_number INTEGER NOT NULL,
-	created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
-	UNIQUE (game_id, user_id, round_number),
-	FOREIGN KEY (game_id) REFERENCES games(id) ON DELETE CASCADE,
-	FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
-)`
-
-const createCategoriesTable = `
-CREATE TABLE IF NOT EXISTS categories (
-	id INTEGER PRIMARY KEY AUTOINCREMENT,
-	name TEXT NOT NULL UNIQUE,
-	is_default INTEGER DEFAULT 0,
-	created_at DATETIME DEFAULT CURRENT_TIMESTAMP
-)`
-
-const createPetitBacAnswersTable = `
-CREATE TABLE IF NOT EXISTS petitbac_answers (
-	id INTEGER PRIMARY KEY AUTOINCREMENT,
-	game_id INTEGER NOT NULL,
-	user_id INTEGER NOT NULL,
-	round_number INTEGER NOT NULL,
-	category_id INTEGER NOT NULL,
-	letter TEXT NOT NULL,
-	answer TEXT DEFAULT '',
-	votes_valid INTEGER DEFAULT 0,
-	votes_invalid INTEGER DEFAULT 0,
-	is_validated INTEGER DEFAULT 0,
-	points_awarded INTEGER DEFAULT 0,
-	created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
-	UNIQUE (game_id, user_id, round_number, category_id),
-	FOREIGN KEY (game_id) REFERENCES games(id) ON DELETE CASCADE,
-	FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE,
-	FOREIGN KEY (category_id) REFERENCES categories(id) ON DELETE CASCADE
-)`
-
-const insertDefaultCategories = `
-INSERT OR IGNORE INTO categories (id, name, is_default) VALUES
-	(1, 'Artiste', 1),
-	(2, 'Album', 1),
-	(3, 'Groupe', 1),
-	(4, 'Instrument', 1),
-	(5, 'Featuring', 1)
-`
+	return RunMigrations()
+}

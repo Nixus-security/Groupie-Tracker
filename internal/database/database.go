@@ -1,10 +1,11 @@
+// Package database gère la connexion et les opérations SQLite
 package database
 
 import (
 	"database/sql"
-	"os"
-	"path/filepath"
+	"log"
 	"sync"
+
 	"github.com/mattn/go-sqlite3"
 )
 
@@ -13,63 +14,44 @@ var (
 	once sync.Once
 )
 
+// Init initialise la connexion à la base de données
 func Init(dbPath string) error {
-	var initErr error
-
+	var err error
 	once.Do(func() {
-		dir := filepath.Dir(dbPath)
-		if err := os.MkdirAll(dir, 0755); err != nil {
-			initErr = err
-			return
-		}
-
-		var err error
-		db, err = sql.Open("sqlite3", dbPath+"?_foreign_keys=on&_journal_mode=WAL")
+		db, err = sql.Open("sqlite3", dbPath+"?_foreign_keys=on")
 		if err != nil {
-			initErr = err
 			return
 		}
 
-		if err = db.Ping(); err != nil {
-			initErr = err
-			return
-		}
-
+		// Configuration du pool de connexions
 		db.SetMaxOpenConns(25)
 		db.SetMaxIdleConns(5)
-	})
 
-	return initErr
+		// Vérifier la connexion
+		if err = db.Ping(); err != nil {
+			return
+		}
+
+		log.Println("✅ Base de données SQLite connectée:", dbPath)
+
+		// Exécuter les migrations
+		if err = RunMigrations(); err != nil {
+			log.Printf("❌ Erreur migrations: %v", err)
+			return
+		}
+	})
+	return err
 }
 
-func DB() *sql.DB {
+// GetDB retourne l'instance de la base de données
+func GetDB() *sql.DB {
 	return db
 }
 
+// Close ferme la connexion à la base de données
 func Close() error {
 	if db != nil {
 		return db.Close()
 	}
 	return nil
-}
-
-func Transaction(fn func(*sql.Tx) error) error {
-	tx, err := db.Begin()
-	if err != nil {
-		return err
-	}
-
-	defer func() {
-		if p := recover(); p != nil {
-			tx.Rollback()
-			panic(p)
-		}
-	}()
-
-	if err := fn(tx); err != nil {
-		tx.Rollback()
-		return err
-	}
-
-	return tx.Commit()
 }
