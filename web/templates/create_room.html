@@ -1,0 +1,282 @@
+{{template "base" .}}
+
+{{define "content"}}
+<div class="create-room-page">
+    <div class="page-header">
+        <a href="/rooms" class="back-link">← Retour aux salles</a>
+        <h1>➕ Créer une salle</h1>
+    </div>
+    
+    {{if .Error}}
+    <div class="alert alert-danger">
+        {{.Error}}
+    </div>
+    {{end}}
+    
+    <div class="create-room-card card">
+        <form method="POST" action="/room/create" id="create-room-form">
+            <div class="form-group">
+                <label for="name">Nom de la salle</label>
+                <input type="text" 
+                       id="name" 
+                       name="name" 
+                       placeholder="Ma super salle"
+                       maxlength="50"
+                       required>
+            </div>
+            
+            <div class="form-group">
+                <label>Type de jeu</label>
+                <div class="game-type-selector">
+                    <label class="game-type-option">
+                        <input type="radio" name="game_type" value="blindtest" checked>
+                        <div class="game-type-card">
+                            <div class="game-icon">🎧</div>
+                            <div class="game-info">
+                                <h3>Blind Test</h3>
+                                <p>Devinez le titre de la chanson le plus vite possible !</p>
+                                <ul>
+                                    <li>Playlists: Rock, Rap, Pop</li>
+                                    <li>37 secondes par manche</li>
+                                    <li>Points selon la rapidité</li>
+                                </ul>
+                            </div>
+                        </div>
+                    </label>
+                    
+                    <label class="game-type-option">
+                        <input type="radio" name="game_type" value="petitbac">
+                        <div class="game-type-card">
+                            <div class="game-icon">🎼</div>
+                            <div class="game-info">
+                                <h3>Petit Bac Musical</h3>
+                                <p>Trouvez des réponses musicales pour chaque lettre !</p>
+                                <ul>
+                                    <li>Catégories: Artiste, Album, Groupe...</li>
+                                    <li>9 manches</li>
+                                    <li>Validation collective</li>
+                                </ul>
+                            </div>
+                        </div>
+                    </label>
+                </div>
+            </div>
+            
+            <div class="form-group game-config blindtest-config">
+                <label>Configuration Blind Test</label>
+                <div class="config-options">
+                    <div class="config-option">
+                        <label for="playlist">Playlist</label>
+                        <select id="playlist" name="playlist">
+                            <option value="Pop">🎤 Pop</option>
+                            <option value="Rock">🎸 Rock</option>
+                            <option value="Rap">🎤 Rap</option>
+                        </select>
+                    </div>
+                    <div class="config-option">
+                        <label for="time_per_round">Temps par manche</label>
+                        <select id="time_per_round" name="time_per_round">
+                            <option value="30">30 secondes</option>
+                            <option value="37" selected>37 secondes</option>
+                            <option value="45">45 secondes</option>
+                            <option value="60">60 secondes</option>
+                        </select>
+                    </div>
+                </div>
+            </div>
+            
+            <div class="form-group game-config petitbac-config" style="display:none;">
+                <label>Configuration Petit Bac</label>
+                <div class="config-options">
+                    <div class="config-option">
+                        <label for="nb_rounds">Nombre de manches</label>
+                        <select id="nb_rounds" name="nb_rounds">
+                            <option value="5">5 manches</option>
+                            <option value="9" selected>9 manches</option>
+                            <option value="12">12 manches</option>
+                        </select>
+                    </div>
+                    <div class="config-option categories-select">
+                        <label>Catégories</label>
+                        <div class="categories-checkboxes">
+                            <label><input type="checkbox" name="categories" value="artiste" checked> Artiste</label>
+                            <label><input type="checkbox" name="categories" value="album" checked> Album</label>
+                            <label><input type="checkbox" name="categories" value="groupe" checked> Groupe</label>
+                            <label><input type="checkbox" name="categories" value="instrument" checked> Instrument</label>
+                            <label><input type="checkbox" name="categories" value="featuring" checked> Featuring</label>
+                        </div>
+                    </div>
+                </div>
+            </div>
+            
+            <button type="submit" class="btn btn-primary btn-lg btn-block">
+                Créer la salle
+            </button>
+        </form>
+    </div>
+</div>
+{{end}}
+
+{{define "scripts"}}
+<script>
+document.addEventListener('DOMContentLoaded', function() {
+    const gameTypeInputs = document.querySelectorAll('input[name="game_type"]');
+    const blindtestConfig = document.querySelector('.blindtest-config');
+    const petitbacConfig = document.querySelector('.petitbac-config');
+    
+    gameTypeInputs.forEach(input => {
+        input.addEventListener('change', function() {
+            if (this.value === 'blindtest') {
+                blindtestConfig.style.display = 'block';
+                petitbacConfig.style.display = 'none';
+            } else {
+                blindtestConfig.style.display = 'none';
+                petitbacConfig.style.display = 'block';
+            }
+        });
+    });
+});
+</script>
+<style>
+.create-room-page {
+    max-width: 700px;
+    margin: 0 auto;
+}
+
+.back-link {
+    color: var(--gray-light);
+    text-decoration: none;
+    display: inline-block;
+    margin-bottom: 1rem;
+}
+
+.back-link:hover {
+    color: var(--primary);
+}
+
+.page-header h1 {
+    margin-bottom: 2rem;
+}
+
+.create-room-card {
+    padding: 2rem;
+}
+
+.game-type-selector {
+    display: grid;
+    gap: 1rem;
+}
+
+.game-type-option {
+    cursor: pointer;
+}
+
+.game-type-option input {
+    display: none;
+}
+
+.game-type-card {
+    display: flex;
+    gap: 1.5rem;
+    padding: 1.5rem;
+    background: var(--dark);
+    border: 2px solid var(--gray);
+    border-radius: var(--radius-lg);
+    transition: var(--transition);
+}
+
+.game-type-option input:checked + .game-type-card {
+    border-color: var(--primary);
+    background: rgba(99, 102, 241, 0.1);
+}
+
+.game-type-card:hover {
+    border-color: var(--primary);
+}
+
+.game-icon {
+    font-size: 3rem;
+    flex-shrink: 0;
+}
+
+.game-info h3 {
+    margin-bottom: 0.5rem;
+    color: var(--white);
+}
+
+.game-info p {
+    color: var(--gray-light);
+    margin-bottom: 0.75rem;
+    font-size: 0.9rem;
+}
+
+.game-info ul {
+    list-style: none;
+    font-size: 0.85rem;
+    color: var(--gray);
+}
+
+.game-info li::before {
+    content: "•";
+    color: var(--secondary);
+    margin-right: 0.5rem;
+}
+
+.game-config {
+    margin-top: 1.5rem;
+    padding: 1.5rem;
+    background: var(--dark);
+    border-radius: var(--radius);
+}
+
+.game-config > label {
+    font-weight: 600;
+    margin-bottom: 1rem;
+    display: block;
+}
+
+.config-options {
+    display: grid;
+    gap: 1rem;
+}
+
+.config-option label {
+    font-size: 0.875rem;
+    color: var(--gray-light);
+}
+
+.categories-checkboxes {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.75rem;
+    margin-top: 0.5rem;
+}
+
+.categories-checkboxes label {
+    display: flex;
+    align-items: center;
+    gap: 0.25rem;
+    background: var(--dark-light);
+    padding: 0.5rem 0.75rem;
+    border-radius: var(--radius);
+    cursor: pointer;
+    color: var(--white);
+}
+
+.categories-checkboxes input {
+    width: auto;
+}
+
+.btn-block {
+    width: 100%;
+    margin-top: 2rem;
+}
+
+@media (max-width: 600px) {
+    .game-type-card {
+        flex-direction: column;
+        text-align: center;
+    }
+}
+</style>
+{{end}}
