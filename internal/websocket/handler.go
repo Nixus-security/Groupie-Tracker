@@ -196,7 +196,7 @@ func (h *Handler) handlePlayerReady(client *Client, room *models.Room, msg *mode
 }
 
 // handleLeaveRoom gère le départ d'un joueur
-func (h *Handler) handleLeaveRoom(client *Client, room *models.Room) {
+func (h *Handler) handleLeaveRoom(client *Client, _ *models.Room) {
 	err := h.roomManager.LeaveRoom(client.RoomCode, client.UserID)
 	if err != nil {
 		client.SendError(err.Error())

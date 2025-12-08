@@ -23,7 +23,8 @@ func main() {
 	log.Println("🚀 Démarrage de Groupie-Tracker...")
 
 	// Initialiser la base de données
-	if err := database.Initialize(); err != nil {
+	dbPath := getEnvOrDefault("DB_PATH", "groupie_tracker.db")
+	if err := database.Init(dbPath); err != nil {
 		log.Fatalf("❌ Erreur initialisation DB: %v", err)
 	}
 	defer database.Close()
@@ -34,7 +35,11 @@ func main() {
 	spotifyClientSecret := getEnvOrDefault("SPOTIFY_CLIENT_SECRET", "")
 
 	if spotifyClientID != "" && spotifyClientSecret != "" {
-		if err := spotify.Initialize(spotifyClientID, spotifyClientSecret); err != nil {
+		spotifyClient := spotify.NewClient(spotify.Config{
+			ClientID:     spotifyClientID,
+			ClientSecret: spotifyClientSecret,
+		})
+		if err := spotifyClient.Authenticate(); err != nil {
 			log.Printf("⚠️ Avertissement Spotify: %v", err)
 		} else {
 			log.Println("✅ Client Spotify initialisé")
@@ -64,35 +69,24 @@ func main() {
 	fs := http.FileServer(http.Dir("web/static"))
 	mux.Handle("/static/", http.StripPrefix("/static/", fs))
 
-	// Routes d'authentification
-	authHandler := auth.NewHandler()
-	mux.HandleFunc("/register", authHandler.RegisterPage)
-	mux.HandleFunc("/login", authHandler.LoginPage)
-	mux.HandleFunc("/logout", authHandler.Logout)
-	mux.HandleFunc("/api/auth/register", authHandler.RegisterAPI)
-	mux.HandleFunc("/api/auth/login", authHandler.LoginAPI)
-	mux.HandleFunc("/api/auth/logout", authHandler.LogoutAPI)
-	mux.HandleFunc("/api/auth/me", authHandler.MeAPI)
+	// Créer le middleware d'authentification
+	authMiddleware := auth.NewMiddleware()
 
-	// Routes des salles
-	roomHandler := rooms.NewHandler()
-	mux.HandleFunc("/rooms", auth.RequireAuth(roomHandler.ListRooms))
-	mux.HandleFunc("/room/create", auth.RequireAuth(roomHandler.CreateRoomPage))
-	mux.HandleFunc("/room/join", auth.RequireAuth(roomHandler.JoinRoomPage))
-	mux.HandleFunc("/room/", auth.RequireAuth(roomHandler.RoomPage))
-	mux.HandleFunc("/api/rooms", auth.RequireAuthAPI(roomHandler.ListRoomsAPI))
-	mux.HandleFunc("/api/rooms/create", auth.RequireAuthAPI(roomHandler.CreateRoomAPI))
-	mux.HandleFunc("/api/rooms/join", auth.RequireAuthAPI(roomHandler.JoinRoomAPI))
-	mux.HandleFunc("/api/rooms/leave", auth.RequireAuthAPI(roomHandler.LeaveRoomAPI))
-	mux.HandleFunc("/api/rooms/ready", auth.RequireAuthAPI(roomHandler.SetReadyAPI))
-	mux.HandleFunc("/api/rooms/config", auth.RequireAuthAPI(roomHandler.UpdateConfigAPI))
-	mux.HandleFunc("/api/rooms/start", auth.RequireAuthAPI(roomHandler.StartGameAPI))
-	mux.HandleFunc("/api/rooms/info", auth.RequireAuthAPI(roomHandler.RoomInfoAPI))
+	// Répertoire des templates
+	templatesDir := "web/templates"
+
+	// Routes d'authentification (utilisent leur propre méthode RegisterRoutes)
+	authHandler := auth.NewHandler(templatesDir)
+	authHandler.RegisterRoutes(mux, authMiddleware)
+
+	// Routes des salles (utilisent leur propre méthode RegisterRoutes)
+	roomHandler := rooms.NewHandler(templatesDir)
+	roomHandler.RegisterRoutes(mux, authMiddleware)
 
 	// Routes Petit Bac catégories (CRUD)
 	petitbacHandler := petitbac.NewHandler()
-	mux.HandleFunc("/api/petitbac/categories", auth.RequireAuthAPI(petitbacHandler.CategoriesAPI))
-	mux.HandleFunc("/api/petitbac/categories/", auth.RequireAuthAPI(petitbacHandler.CategoryAPI))
+	mux.Handle("/api/petitbac/categories", authMiddleware.RequireAuthAPI(http.HandlerFunc(petitbacHandler.CategoriesAPI)))
+	mux.Handle("/api/petitbac/categories/", authMiddleware.RequireAuthAPI(http.HandlerFunc(petitbacHandler.CategoryAPI)))
 
 	// WebSocket avec injection des handlers de jeu
 	wsHandler := websocket.NewHandler()
@@ -137,12 +131,15 @@ func main() {
 		}
 	})
 	
-	mux.HandleFunc("/ws", auth.RequireAuthAPI(wsHandler.HandleWebSocket))
+	// Route WebSocket avec authentification
+	mux.Handle("/ws", authMiddleware.RequireAuthAPI(http.HandlerFunc(wsHandler.HandleWebSocket)))
 
-	// Page d'accueil et jeux
-	mux.HandleFunc("/", handleHome)
-	mux.HandleFunc("/blindtest/", auth.RequireAuth(handleBlindTest))
-	mux.HandleFunc("/petitbac/", auth.RequireAuth(handlePetitBac))
+	// Page d'accueil (avec authentification optionnelle)
+	mux.Handle("/", authMiddleware.OptionalAuth(http.HandlerFunc(handleHome)))
+	
+	// Pages des jeux (nécessitent authentification)
+	mux.Handle("/blindtest/", authMiddleware.RequireAuth(http.HandlerFunc(handleBlindTest)))
+	mux.Handle("/petitbac/", authMiddleware.RequireAuth(http.HandlerFunc(handlePetitBac)))
 
 	// Configuration du serveur
 	port := getEnvOrDefault("PORT", "8080")

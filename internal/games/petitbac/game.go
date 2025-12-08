@@ -739,7 +739,7 @@ func (h *Handler) CategoryAPI(w http.ResponseWriter, r *http.Request) {
 }
 
 // listCategories liste toutes les catégories
-func (h *Handler) listCategories(w http.ResponseWriter, r *http.Request) {
+func (h *Handler) listCategories(w http.ResponseWriter, _ *http.Request) {
 	db := database.GetDB()
 
 	rows, err := db.Query("SELECT id, name, created_at FROM petitbac_categories ORDER BY name")
@@ -807,7 +807,7 @@ func (h *Handler) createCategory(w http.ResponseWriter, r *http.Request) {
 }
 
 // getCategory récupère une catégorie par ID
-func (h *Handler) getCategory(w http.ResponseWriter, r *http.Request, id int64) {
+func (h *Handler) getCategory(w http.ResponseWriter, _ *http.Request, id int64) {
 	db := database.GetDB()
 
 	var cat models.PetitBacCategory
@@ -871,7 +871,7 @@ func (h *Handler) updateCategory(w http.ResponseWriter, r *http.Request, id int6
 }
 
 // deleteCategory supprime une catégorie
-func (h *Handler) deleteCategory(w http.ResponseWriter, r *http.Request, id int64) {
+func (h *Handler) deleteCategory(w http.ResponseWriter, _ *http.Request, id int64) {
 	db := database.GetDB()
 
 	result, err := db.Exec("DELETE FROM petitbac_categories WHERE id = ?", id)
