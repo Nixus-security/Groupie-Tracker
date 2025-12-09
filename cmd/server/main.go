@@ -2,10 +2,12 @@
 package main
 
 import (
+	"html/template"
 	"log"
 	"net/http"
 	"os"
 	"os/signal"
+	"path/filepath"
 	"syscall"
 	"time"
 
@@ -103,13 +105,35 @@ func main() {
 	// PAGES HTML
 	// ============================================================================
 
-	// Page d'accueil
+	// Page d'accueil (index.html)
 	mux.HandleFunc("/", func(w http.ResponseWriter, r *http.Request) {
 		if r.URL.Path != "/" {
 			http.NotFound(w, r)
 			return
 		}
-		http.Redirect(w, r, "/acceuil", http.StatusSeeOther)
+
+		// Récupérer l'utilisateur s'il est connecté (optionnel)
+		sessionManager := auth.NewSessionManager()
+		user, _ := sessionManager.GetUserFromRequest(r)
+
+		data := map[string]interface{}{
+			"Title": "Accueil - Groupie Tracker",
+			"User":  user,
+		}
+
+		// Charger le template
+		tmpl, err := template.ParseFiles(filepath.Join(config.TemplateDir, "index.html"))
+		if err != nil {
+			log.Printf("[HTTP] Erreur chargement index.html: %v", err)
+			http.Error(w, "Erreur interne", http.StatusInternalServerError)
+			return
+		}
+
+		w.Header().Set("Content-Type", "text/html; charset=utf-8")
+		if err := tmpl.Execute(w, data); err != nil {
+			log.Printf("[HTTP] Erreur exécution template index: %v", err)
+			http.Error(w, "Erreur interne", http.StatusInternalServerError)
+		}
 	})
 
 	// Authentification
@@ -117,10 +141,84 @@ func main() {
 	mux.HandleFunc("/register", authHandler.HandleRegister)
 	mux.HandleFunc("/logout", authHandler.HandleLogout)
 
-	// Lobby et salles
-	mux.HandleFunc("/accueil", roomHandler.HandleLobby) // Ancien chemin pour compatibilité
+	// Lobby et salles (nécessite authentification)
+	mux.HandleFunc("/accueil", roomHandler.HandleLobby)
 	mux.HandleFunc("/lobby", roomHandler.HandleLobby)
+	mux.HandleFunc("/rooms", roomHandler.HandleLobby)
 	mux.HandleFunc("/room/", roomHandler.HandleRoom)
+
+	// Page de création de salle
+	mux.HandleFunc("/room/create", func(w http.ResponseWriter, r *http.Request) {
+		// Vérifier l'authentification
+		sessionManager := auth.NewSessionManager()
+		user, err := sessionManager.GetUserFromRequest(r)
+		if err != nil {
+			http.Redirect(w, r, "/login?redirect=/room/create", http.StatusSeeOther)
+			return
+		}
+
+		if r.Method == http.MethodPost {
+			// Traiter la création de salle
+			roomHandler.HandleCreateRoom(w, r)
+			return
+		}
+
+		// Afficher le formulaire
+		data := map[string]interface{}{
+			"Title": "Créer une salle",
+			"User":  user,
+		}
+
+		tmpl, err := template.ParseFiles(filepath.Join(config.TemplateDir, "create_room.html"))
+		if err != nil {
+			log.Printf("[HTTP] Erreur chargement create_room.html: %v", err)
+			http.Error(w, "Erreur interne", http.StatusInternalServerError)
+			return
+		}
+
+		w.Header().Set("Content-Type", "text/html; charset=utf-8")
+		if err := tmpl.Execute(w, data); err != nil {
+			log.Printf("[HTTP] Erreur exécution template create_room: %v", err)
+			http.Error(w, "Erreur interne", http.StatusInternalServerError)
+		}
+	})
+
+	// Page de jonction avec code
+	mux.HandleFunc("/room/join", func(w http.ResponseWriter, r *http.Request) {
+		// Vérifier l'authentification
+		sessionManager := auth.NewSessionManager()
+		user, err := sessionManager.GetUserFromRequest(r)
+		if err != nil {
+			http.Redirect(w, r, "/login?redirect=/room/join", http.StatusSeeOther)
+			return
+		}
+
+		if r.Method == http.MethodPost {
+			// Traiter la jonction
+			roomHandler.HandleJoinRoom(w, r)
+			return
+		}
+
+		// Afficher le formulaire
+		data := map[string]interface{}{
+			"Title": "Rejoindre une salle",
+			"User":  user,
+			"Error": r.URL.Query().Get("error"),
+		}
+
+		tmpl, err := template.ParseFiles(filepath.Join(config.TemplateDir, "join_room.html"))
+		if err != nil {
+			log.Printf("[HTTP] Erreur chargement join_room.html: %v", err)
+			http.Error(w, "Erreur interne", http.StatusInternalServerError)
+			return
+		}
+
+		w.Header().Set("Content-Type", "text/html; charset=utf-8")
+		if err := tmpl.Execute(w, data); err != nil {
+			log.Printf("[HTTP] Erreur exécution template join_room: %v", err)
+			http.Error(w, "Erreur interne", http.StatusInternalServerError)
+		}
+	})
 
 	// ============================================================================
 	// API REST

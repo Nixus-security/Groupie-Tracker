@@ -5,7 +5,7 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Groupie Tracker - Jeux Musicaux Multijoueur</title>
     <link rel="stylesheet" href="/static/style.css">
-    <link rel="stylesheet" href="/static/icons.css" type="image/x-icon">
+    <link rel="stylesheet" href="/static/icons.css">
 </head>
 <body>
     <!-- Notes musicales flottantes -->
@@ -22,12 +22,12 @@
     <!-- Navigation -->
     <nav class="navbar">
         <a href="/" class="navbar-brand">
-            <span class="icon">🎵</span>
+            <span class="icon icon-music icon-md"></span>
             <span>Groupie Tracker</span>
         </a>
         
         <ul class="navbar-nav">
-            <li><a href="/acceuil">Accueil</a></li>
+            <li><a href="/" class="active">Accueil</a></li>
             <li><a href="/rooms">Salles</a></li>
         </ul>
 
@@ -48,37 +48,37 @@
     <div class="container">
         <div class="text-center" style="padding: 64px 0;">
             <h1 style="font-size: 3.5rem; margin-bottom: 16px;">
-                <span style="background: var(--gradient-primary); -webkit-background-clip: text; -webkit-text-fill-color: transparent; background-clip: text;">
+                <span style="background: var(--gradient-neon); -webkit-background-clip: text; -webkit-text-fill-color: transparent; background-clip: text;">
                     Groupie Tracker
                 </span>
             </h1>
-            <p style="font-size: 1.5rem; color: var(--gray); margin-bottom: 48px;">
+            <p style="font-size: 1.5rem; color: var(--text-secondary); margin-bottom: 48px;">
                 Plateforme de jeux musicaux multijoueur
             </p>
 
             {{if .User}}
             <div class="d-flex gap-md justify-center" style="flex-wrap: wrap;">
                 <a href="/rooms" class="btn btn-primary btn-lg">
-                    <span>🎮</span>
+                    <span class="icon icon-gamepad icon-sm"></span>
                     <span>Voir les salles</span>
                 </a>
                 <a href="/room/create" class="btn btn-success btn-lg">
-                    <span>➕</span>
+                    <span class="icon icon-plus icon-sm"></span>
                     <span>Créer une salle</span>
                 </a>
                 <a href="/room/join" class="btn btn-secondary btn-lg">
-                    <span>🔑</span>
+                    <span class="icon icon-key icon-sm"></span>
                     <span>Rejoindre avec code</span>
                 </a>
             </div>
             {{else}}
             <div class="d-flex gap-md justify-center">
                 <a href="/login" class="btn btn-primary btn-lg">
-                    <span>🔐</span>
+                    <span class="icon icon-lock icon-sm"></span>
                     <span>Connexion</span>
                 </a>
                 <a href="/register" class="btn btn-secondary btn-lg">
-                    <span>📝</span>
+                    <span class="icon icon-user icon-sm"></span>
                     <span>Inscription</span>
                 </a>
             </div>
@@ -92,31 +92,59 @@
         <div class="d-grid gap-lg" style="grid-template-columns: repeat(auto-fit, minmax(350px, 1fr)); margin-bottom: 64px;">
             <!-- Blind Test -->
             <div class="card game-card">
-                <div class="game-icon">🎧</div>
+                <div class="game-icon">
+                    <span class="icon icon-headphones icon-xxl"></span>
+                </div>
                 <h3>Blind Test</h3>
                 <p class="text-muted">
                     Devinez le titre ou l'artiste à partir d'extraits musicaux de 30 secondes !
                 </p>
-                <ul style="list-style: none; margin-top: 16px; color: var(--gray);">
-                    <li style="padding: 8px 0;">🎵 Playlists : Pop, Rock, Rap</li>
-                    <li style="padding: 8px 0;">⏱️ 37 secondes par manche</li>
-                    <li style="padding: 8px 0;">🏆 Points selon la rapidité</li>
-                    <li style="padding: 8px 0;">👥 2 à 8 joueurs</li>
+                <ul style="list-style: none; margin-top: 16px; color: var(--text-secondary);">
+                    <li style="padding: 8px 0; display: flex; align-items: center; gap: 8px;">
+                        <span class="icon icon-music icon-sm"></span>
+                        Playlists : Pop, Rock, Rap
+                    </li>
+                    <li style="padding: 8px 0; display: flex; align-items: center; gap: 8px;">
+                        <span class="icon icon-timer icon-sm"></span>
+                        37 secondes par manche
+                    </li>
+                    <li style="padding: 8px 0; display: flex; align-items: center; gap: 8px;">
+                        <span class="icon icon-trophy icon-sm"></span>
+                        Points selon la rapidité
+                    </li>
+                    <li style="padding: 8px 0; display: flex; align-items: center; gap: 8px;">
+                        <span class="icon icon-users icon-sm"></span>
+                        2 à 8 joueurs
+                    </li>
                 </ul>
             </div>
 
             <!-- Petit Bac Musical -->
             <div class="card game-card">
-                <div class="game-icon">🔤</div>
+                <div class="game-icon">
+                    <span class="icon icon-letters icon-xxl"></span>
+                </div>
                 <h3>Petit Bac Musical</h3>
                 <p class="text-muted">
                     Trouvez des mots du monde musical commençant par la lettre tirée au sort !
                 </p>
-                <ul style="list-style: none; margin-top: 16px; color: var(--gray);">
-                    <li style="padding: 8px 0;">🔤 Une lettre aléatoire par manche</li>
-                    <li style="padding: 8px 0;">📝 5 catégories : Artiste, Album, Groupe, Instrument, Featuring</li>
-                    <li style="padding: 8px 0;">🗳️ Validation collective des réponses</li>
-                    <li style="padding: 8px 0;">🎯 9 manches par partie</li>
+                <ul style="list-style: none; margin-top: 16px; color: var(--text-secondary);">
+                    <li style="padding: 8px 0; display: flex; align-items: center; gap: 8px;">
+                        <span class="icon icon-letters icon-sm"></span>
+                        Une lettre aléatoire par manche
+                    </li>
+                    <li style="padding: 8px 0; display: flex; align-items: center; gap: 8px;">
+                        <span class="icon icon-music icon-sm"></span>
+                        5 catégories musicales
+                    </li>
+                    <li style="padding: 8px 0; display: flex; align-items: center; gap: 8px;">
+                        <span class="icon icon-thumb-up icon-sm"></span>
+                        Validation collective
+                    </li>
+                    <li style="padding: 8px 0; display: flex; align-items: center; gap: 8px;">
+                        <span class="icon icon-gamepad icon-sm"></span>
+                        9 manches par partie
+                    </li>
                 </ul>
             </div>
         </div>
@@ -149,7 +177,7 @@
     </div>
 
     <!-- Footer -->
-    <footer style="text-align: center; padding: 32px; color: var(--gray); border-top: 1px solid rgba(255,255,255,0.1);">
+    <footer style="text-align: center; padding: 32px; color: var(--text-muted); border-top: 1px solid rgba(255,255,255,0.1);">
         <p>© 2024 Groupie Tracker - Projet Go</p>
         <p style="font-size: 0.875rem; margin-top: 8px;">
             Fait avec ❤️ et beaucoup de 🎵

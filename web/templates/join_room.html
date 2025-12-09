@@ -5,12 +5,13 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>{{.Title}} - Groupie Tracker</title>
     <link rel="stylesheet" href="/static/style.css">
+    <link rel="stylesheet" href="/static/icons.css">
 </head>
 <body>
     <!-- Navigation -->
     <nav class="navbar">
         <a href="/" class="navbar-brand">
-            <span class="icon">🎵</span>
+            <span class="icon icon-music icon-md"></span>
             <span>Groupie Tracker</span>
         </a>
         
@@ -20,77 +21,123 @@
         </ul>
 
         <div class="navbar-user">
-            {{if .User}}
             <div class="user-info">
                 <div class="avatar">{{slice .User.Pseudo 0 1}}</div>
                 <span>{{.User.Pseudo}}</span>
             </div>
             <a href="/logout" class="btn btn-secondary btn-sm">Déconnexion</a>
-            {{end}}
         </div>
     </nav>
 
-    <!-- Contenu principal -->
     <div class="container container-sm">
-        <div class="card" style="margin-top: 48px;">
-            <div class="card-header">
-                <h1 class="card-title">🔑 Rejoindre une salle</h1>
+        <!-- Header de page -->
+        <header style="text-align: center; padding: 2rem 0;">
+            <div style="font-size: 4rem; margin-bottom: 1rem;">
+                <span class="icon icon-key icon-xxl"></span>
             </div>
+            <h1>Rejoindre une salle</h1>
+            <p class="text-muted">Entrez le code de la salle partagé par votre ami</p>
+        </header>
 
-            <div class="card-body">
-                <!-- Message d'erreur -->
-                {{if .Error}}
-                <div class="alert alert-danger">
-                    <span>⚠️</span>
-                    <span>{{.Error}}</span>
+        {{if .Error}}
+        <div class="alert alert-danger">
+            <span class="icon icon-alert icon-sm"></span>
+            <span>{{.Error}}</span>
+        </div>
+        {{end}}
+
+        <div class="join-room-card">
+            <form method="POST" action="/room/join" class="join-form">
+                <div class="form-group">
+                    <label for="room_code" class="text-center" style="display: block; font-size: 1.25rem; margin-bottom: 1rem;">
+                        Code de la salle
+                    </label>
+                    <input 
+                        type="text" 
+                        id="room_code" 
+                        name="code" 
+                        class="form-control code-input"
+                        placeholder="ABC123"
+                        maxlength="6"
+                        required
+                        autofocus
+                        autocomplete="off"
+                        style="text-transform: uppercase; font-family: var(--font-mono); font-size: 2rem; text-align: center; letter-spacing: 8px; padding: 1.5rem;"
+                    >
+                    <small class="form-text text-center" style="display: block;">
+                        Le code est composé de 6 caractères
+                    </small>
                 </div>
-                {{end}}
 
-                <form action="/room/join" method="POST" id="joinForm">
-                    <div class="form-group">
-                        <label class="form-label" for="code">Code de la salle</label>
-                        <input 
-                            type="text" 
-                            class="form-control" 
-                            id="code" 
-                            name="code" 
-                            placeholder="XXXXXX"
-                            maxlength="6"
-                            style="text-transform: uppercase; font-family: var(--font-mono); font-size: 2rem; text-align: center; letter-spacing: 8px;"
-                            required
-                            autofocus
-                        >
-                        <div class="form-text text-center">Entrez le code à 6 caractères partagé par l'hôte</div>
-                    </div>
-
-                    <button type="submit" class="btn btn-primary btn-lg btn-block mt-lg">
-                        <span>Rejoindre</span>
-                        <span>→</span>
-                    </button>
-                </form>
-
-                <div class="text-center mt-lg">
-                    <a href="/rooms" class="btn btn-secondary">
-                        <span>←</span>
-                        <span>Voir toutes les salles</span>
+                <div class="form-actions" style="margin-top: 2rem;">
+                    <a href="/rooms" class="btn btn-ghost btn-lg">
+                        <span class="icon icon-arrow-left icon-sm"></span>
+                        <span>Retour</span>
                     </a>
+                    <button type="submit" class="btn btn-primary btn-lg">
+                        <span>Rejoindre</span>
+                        <span class="icon icon-arrow-right icon-sm"></span>
+                    </button>
                 </div>
+            </form>
+        </div>
+
+        <!-- Info box -->
+        <div class="info-box" style="margin-top: 2rem;">
+            <span class="info-icon">
+                <span class="icon icon-info icon-lg"></span>
+            </span>
+            <div class="info-content">
+                <h4>Vous n'avez pas de code ?</h4>
+                <p>
+                    Demandez à l'hôte de la salle de vous le partager, ou consultez la liste des salles publiques.
+                </p>
+                <a href="/rooms" class="btn btn-secondary btn-sm mt-sm">
+                    <span class="icon icon-gamepad icon-xs"></span>
+                    <span>Voir les salles disponibles</span>
+                </a>
             </div>
         </div>
     </div>
 
     <script>
         // Auto-majuscule pour le code
-        document.getElementById('code').addEventListener('input', function() {
-            this.value = this.value.toUpperCase();
+        const codeInput = document.getElementById('room_code');
+        
+        codeInput.addEventListener('input', function() {
+            this.value = this.value.toUpperCase().replace(/[^A-Z0-9]/g, '');
         });
 
-        // Animation de soumission
-        document.getElementById('joinForm').addEventListener('submit', function() {
-            const btn = this.querySelector('button[type="submit"]');
-            btn.disabled = true;
-            btn.innerHTML = '<span class="spinner spinner-sm"></span> Connexion...';
+        // Animation du champ lors du focus
+        codeInput.addEventListener('focus', function() {
+            this.style.borderColor = 'var(--primary)';
+            this.style.boxShadow = '0 0 0 3px rgba(99, 102, 241, 0.1)';
         });
+
+        codeInput.addEventListener('blur', function() {
+            this.style.borderColor = '';
+            this.style.boxShadow = '';
+        });
+
+        // Validation du formulaire
+        document.querySelector('.join-form').addEventListener('submit', function(e) {
+            const code = codeInput.value.trim();
+            if (code.length !== 6) {
+                e.preventDefault();
+                alert('Le code doit contenir exactement 6 caractères');
+                codeInput.focus();
+            }
+        });
+
+        // Animation d'entrée
+        document.querySelector('.join-room-card').style.opacity = '0';
+        document.querySelector('.join-room-card').style.transform = 'translateY(20px)';
+        setTimeout(() => {
+            const card = document.querySelector('.join-room-card');
+            card.style.transition = 'all 0.5s ease';
+            card.style.opacity = '1';
+            card.style.transform = 'translateY(0)';
+        }, 100);
     </script>
 </body>
 </html>

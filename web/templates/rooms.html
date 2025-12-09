@@ -5,18 +5,19 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>{{.Title}} - Groupie Tracker</title>
     <link rel="stylesheet" href="/static/style.css">
+    <link rel="stylesheet" href="/static/icons.css">
 </head>
 <body>
     <!-- Navigation -->
     <nav class="navbar">
         <a href="/" class="navbar-brand">
-            <span class="icon">🎵</span>
+            <span class="icon icon-music icon-md"></span>
             <span>Groupie Tracker</span>
         </a>
         
         <ul class="navbar-nav">
-            <li><a href="/acceuil" >Accueil</a></li>
-            <li><a href="/rooms">Salles</a></li>
+            <li><a href="/">Accueil</a></li>
+            <li><a href="/rooms" class="active">Salles</a></li>
         </ul>
 
         <div class="navbar-user">
@@ -36,14 +37,17 @@
     <div class="container">
         <!-- En-tête -->
         <div class="rooms-header">
-            <h1>🎮 Salles de jeu</h1>
+            <h1>
+                <span class="icon icon-gamepad icon-lg"></span>
+                Salles de jeu
+            </h1>
             <div class="rooms-actions">
                 <button class="btn btn-secondary" onclick="showJoinModal()">
-                    <span>🔑</span>
+                    <span class="icon icon-key icon-sm"></span>
                     <span>Rejoindre avec code</span>
                 </button>
                 <a href="/room/create" class="btn btn-primary">
-                    <span>➕</span>
+                    <span class="icon icon-plus icon-sm"></span>
                     <span>Créer une salle</span>
                 </a>
             </div>
@@ -52,9 +56,18 @@
         <!-- Filtres -->
         <div class="rooms-filters">
             <button class="filter-btn active" data-filter="all">Tous les jeux</button>
-            <button class="filter-btn" data-filter="blindtest">🎧 Blind Test</button>
-            <button class="filter-btn" data-filter="petitbac">🔤 Petit Bac Musical</button>
-            <button class="filter-btn" data-filter="waiting">⏳ En attente</button>
+            <button class="filter-btn" data-filter="blindtest">
+                <span class="icon icon-headphones icon-sm"></span>
+                Blind Test
+            </button>
+            <button class="filter-btn" data-filter="petitbac">
+                <span class="icon icon-letters icon-sm"></span>
+                Petit Bac Musical
+            </button>
+            <button class="filter-btn" data-filter="waiting">
+                <span class="icon icon-timer icon-sm"></span>
+                En attente
+            </button>
         </div>
 
         <!-- Grille des salles -->
@@ -65,14 +78,23 @@
                     <div class="card-header">
                         <h3 class="card-title">{{.Name}}</h3>
                         <span class="badge badge-{{if eq .GameType "blindtest"}}primary{{else}}secondary{{end}}">
-                            {{if eq .GameType "blindtest"}}🎧 Blind Test{{else}}🔤 Petit Bac{{end}}
+                            {{if eq .GameType "blindtest"}}
+                                <span class="icon icon-headphones icon-xs"></span>
+                                Blind Test
+                            {{else}}
+                                <span class="icon icon-letters icon-xs"></span>
+                                Petit Bac
+                            {{end}}
                         </span>
                     </div>
                     <div class="card-body">
                         <div class="room-info">
-                            <span class="room-code">{{.Code}}</span>
+                            <span class="room-code">
+                                <span class="icon icon-key icon-sm"></span>
+                                {{.Code}}
+                            </span>
                             <span class="room-players">
-                                <span>👥</span>
+                                <span class="icon icon-users icon-sm"></span>
                                 <span>{{.PlayerCount}}/8</span>
                             </span>
                         </div>
@@ -80,12 +102,24 @@
                     <div class="card-footer">
                         <div class="d-flex justify-between align-center">
                             <span class="badge badge-status {{.Status}}">
-                                {{if eq .Status "waiting"}}En attente{{else if eq .Status "playing"}}En cours{{else}}Terminée{{end}}
+                                {{if eq .Status "waiting"}}
+                                    <span class="icon icon-timer icon-xs"></span>
+                                    En attente
+                                {{else if eq .Status "playing"}}
+                                    <span class="icon icon-play icon-xs"></span>
+                                    En cours
+                                {{else}}
+                                    <span class="icon icon-check icon-xs"></span>
+                                    Terminée
+                                {{end}}
                             </span>
                             {{if eq .Status "waiting"}}
-                            <a href="/room/{{.Code}}" class="btn btn-primary btn-sm">Rejoindre</a>
+                            <a href="/room/{{.Code}}" class="btn btn-primary btn-sm">
+                                Rejoindre
+                                <span class="icon icon-arrow-right icon-xs"></span>
+                            </a>
                             {{else}}
-                            <span class="btn btn-secondary btn-sm" disabled>Partie en cours</span>
+                            <span class="btn btn-ghost btn-sm" disabled>Partie en cours</span>
                             {{end}}
                         </div>
                     </div>
@@ -93,17 +127,25 @@
                 {{end}}
             {{else}}
             <div class="rooms-empty" id="emptyState">
-                <div class="empty-icon">🎵</div>
+                <div class="empty-icon">
+                    <span class="icon icon-music icon-xxl" style="opacity: 0.3;"></span>
+                </div>
                 <h3>Aucune salle disponible</h3>
                 <p>Créez une nouvelle salle pour commencer à jouer !</p>
-                <a href="/room/create" class="btn btn-primary mt-lg">Créer une salle</a>
+                <a href="/room/create" class="btn btn-primary btn-lg mt-lg">
+                    <span class="icon icon-plus icon-sm"></span>
+                    Créer une salle
+                </a>
             </div>
             {{end}}
         </div>
 
         <!-- Info rafraîchissement -->
         <div class="text-center text-muted mt-lg">
-            <small>🔄 Les salles sont actualisées automatiquement toutes les 10 secondes</small>
+            <small>
+                <span class="icon icon-refresh icon-xs"></span>
+                Les salles sont actualisées automatiquement toutes les 10 secondes
+            </small>
         </div>
     </div>
 
@@ -111,8 +153,13 @@
     <div class="modal-overlay" id="joinModal">
         <div class="modal">
             <div class="modal-header">
-                <h2 class="modal-title">🔑 Rejoindre une salle</h2>
-                <button class="modal-close" onclick="hideJoinModal()">✕</button>
+                <h2 class="modal-title">
+                    <span class="icon icon-key icon-md"></span>
+                    Rejoindre une salle
+                </h2>
+                <button class="modal-close" onclick="hideJoinModal()">
+                    <span class="icon icon-x icon-sm"></span>
+                </button>
             </div>
             <form action="/room/join" method="POST" id="joinForm">
                 <div class="form-group">
@@ -130,7 +177,7 @@
                 </div>
                 <button type="submit" class="btn btn-primary btn-lg btn-block">
                     <span>Rejoindre</span>
-                    <span>→</span>
+                    <span class="icon icon-arrow-right icon-sm"></span>
                 </button>
             </form>
         </div>
@@ -193,10 +240,14 @@
                 });
 
                 // Afficher le message vide si aucune salle visible
-                const visibleCards = document.querySelectorAll('.room-card[style="display: flex"]');
+                const visibleCards = document.querySelectorAll('.room-card[style="display: flex"], .room-card:not([style])');
                 const emptyState = document.getElementById('emptyState');
                 if (emptyState) {
-                    emptyState.style.display = visibleCards.length === 0 ? 'block' : 'none';
+                    const hasVisibleRooms = Array.from(visibleCards).some(card => 
+                        !card.classList.contains('rooms-empty') && 
+                        card.style.display !== 'none'
+                    );
+                    emptyState.style.display = hasVisibleRooms ? 'none' : 'block';
                 }
             });
         });
@@ -206,12 +257,12 @@
             this.value = this.value.toUpperCase();
         });
 
-        // Rafraîchissement automatique
+        // Rafraîchissement automatique (optionnel - décommenter pour activer)
+        /*
         setInterval(() => {
-            // Recharger la page pour actualiser les salles
-            // Dans une vraie application, on utiliserait WebSocket
-            // location.reload();
+            location.reload();
         }, 10000);
+        */
 
         // Animation d'entrée des cartes
         document.querySelectorAll('.room-card').forEach((card, index) => {

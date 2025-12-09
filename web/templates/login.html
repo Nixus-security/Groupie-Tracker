@@ -3,97 +3,128 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>{{.Title}} - Groupie Tracker</title>
+    <title>Connexion - Groupie Tracker</title>
     <link rel="stylesheet" href="/static/style.css">
+    <link rel="stylesheet" href="/static/icons.css">
 </head>
 <body>
-    <!-- Notes musicales flottantes -->
-    <div class="floating-notes">
-        <span class="floating-note" style="left: 10%; animation-delay: 0s;">🎵</span>
-        <span class="floating-note" style="left: 25%; animation-delay: 3s;">🎶</span>
-        <span class="floating-note" style="left: 40%; animation-delay: 6s;">🎵</span>
-        <span class="floating-note" style="left: 55%; animation-delay: 9s;">🎶</span>
-        <span class="floating-note" style="left: 70%; animation-delay: 12s;">🎵</span>
-        <span class="floating-note" style="left: 85%; animation-delay: 15s;">🎶</span>
-    </div>
+    <!-- Navigation -->
+    <nav class="navbar">
+        <a href="/" class="navbar-brand">
+            <span class="icon icon-music icon-md"></span>
+            <span>Groupie Tracker</span>
+        </a>
+        
+        <ul class="navbar-nav">
+            <li><a href="/">Accueil</a></li>
+            <li><a href="/rooms">Salles</a></li>
+        </ul>
+    </nav>
 
-    <div class="auth-page">
+    <div class="container container-sm">
         <div class="auth-container">
-            <div class="auth-card">
-                <!-- Logo -->
-                <div class="auth-logo">
-                    <span class="logo-icon">🎵</span>
-                    <h1>Groupie Tracker</h1>
-                    <p>Connexion à votre compte</p>
+            <!-- Header -->
+            <div class="auth-header">
+                <div class="auth-icon">
+                    <span class="icon icon-lock icon-xxl"></span>
                 </div>
-
-                <!-- Message d'erreur -->
-                {{if .Error}}
-                <div class="alert alert-danger">
-                    <span>⚠️</span>
-                    <span>{{.Error}}</span>
-                </div>
-                {{end}}
-
-                <!-- Formulaire de connexion -->
-                <form action="/login" method="POST" id="loginForm">
-                    {{if .Redirect}}
-                    <input type="hidden" name="redirect" value="{{.Redirect}}">
-                    {{end}}
-
-                    <div class="form-group">
-                        <label class="form-label" for="identifier">Pseudo ou Email</label>
-                        <div class="input-group">
-                            <span class="input-icon">👤</span>
-                            <input 
-                                type="text" 
-                                class="form-control" 
-                                id="identifier" 
-                                name="identifier" 
-                                placeholder="Entrez votre pseudo ou email"
-                                required
-                                autocomplete="username"
-                            >
-                        </div>
-                    </div>
-
-                    <div class="form-group">
-                        <label class="form-label" for="password">Mot de passe</label>
-                        <div class="input-group">
-                            <span class="input-icon">🔒</span>
-                            <input 
-                                type="password" 
-                                class="form-control" 
-                                id="password" 
-                                name="password" 
-                                placeholder="Entrez votre mot de passe"
-                                required
-                                autocomplete="current-password"
-                            >
-                        </div>
-                    </div>
-
-                    <button type="submit" class="btn btn-primary btn-lg btn-block">
-                        <span>Se connecter</span>
-                        <span>→</span>
-                    </button>
-                </form>
-
-                <!-- Lien vers inscription -->
-                <div class="auth-footer">
-                    <p>Pas encore de compte ?</p>
-                    <a href="/register" class="btn btn-outline">Créer un compte</a>
-                </div>
+                <h1>Connexion</h1>
+                <p class="text-muted">Connectez-vous pour jouer avec vos amis</p>
             </div>
+
+            {{if .Error}}
+            <div class="alert alert-danger">
+                <span class="icon icon-alert icon-sm"></span>
+                <span>{{.Error}}</span>
+            </div>
+            {{end}}
+
+            <!-- Formulaire -->
+            <form method="POST" action="/login" class="auth-form">
+                <div class="form-group">
+                    <label for="pseudo">
+                        <span class="icon icon-user icon-sm"></span>
+                        Pseudo
+                    </label>
+                    <input 
+                        type="text" 
+                        id="pseudo" 
+                        name="pseudo" 
+                        class="form-control"
+                        placeholder="Votre pseudo"
+                        required
+                        autofocus
+                        autocomplete="username"
+                        value="{{.Pseudo}}"
+                    >
+                </div>
+
+                <div class="form-group">
+                    <label for="password">
+                        <span class="icon icon-lock icon-sm"></span>
+                        Mot de passe
+                    </label>
+                    <input 
+                        type="password" 
+                        id="password" 
+                        name="password" 
+                        class="form-control"
+                        placeholder="Votre mot de passe"
+                        required
+                        autocomplete="current-password"
+                    >
+                </div>
+
+                <button type="submit" class="btn btn-primary btn-lg btn-block">
+                    <span>Se connecter</span>
+                    <span class="icon icon-arrow-right icon-sm"></span>
+                </button>
+            </form>
+
+            <!-- Séparateur -->
+            <div class="auth-divider">
+                <span>ou</span>
+            </div>
+
+            <!-- Lien inscription -->
+            <div class="auth-footer">
+                <p>Vous n'avez pas de compte ?</p>
+                <a href="/register" class="btn btn-ghost btn-lg btn-block">
+                    <span class="icon icon-user icon-sm"></span>
+                    <span>Créer un compte</span>
+                </a>
+            </div>
+        </div>
+
+        <!-- Retour accueil -->
+        <div class="text-center mt-lg">
+            <a href="/" class="text-muted">
+                <span class="icon icon-arrow-left icon-xs"></span>
+                <span>Retour à l'accueil</span>
+            </a>
         </div>
     </div>
 
     <script>
-        // Animation du formulaire au submit
-        document.getElementById('loginForm').addEventListener('submit', function(e) {
-            const btn = this.querySelector('button[type="submit"]');
-            btn.disabled = true;
-            btn.innerHTML = '<span class="spinner spinner-sm"></span> Connexion...';
+        // Animation d'entrée
+        document.querySelector('.auth-container').style.opacity = '0';
+        document.querySelector('.auth-container').style.transform = 'translateY(20px)';
+        setTimeout(() => {
+            const container = document.querySelector('.auth-container');
+            container.style.transition = 'all 0.5s ease';
+            container.style.opacity = '1';
+            container.style.transform = 'translateY(0)';
+        }, 100);
+
+        // Animation au focus des champs
+        document.querySelectorAll('.form-control').forEach(input => {
+            input.addEventListener('focus', function() {
+                this.parentElement.style.transform = 'scale(1.02)';
+                this.parentElement.style.transition = 'transform 0.2s ease';
+            });
+            input.addEventListener('blur', function() {
+                this.parentElement.style.transform = '';
+            });
         });
     </script>
 </body>

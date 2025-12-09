@@ -1,9 +1,9 @@
-// Package rooms - handler.go
-// Gère les requêtes HTTP pour les salles de jeu
+// Package rooms - Gestionnaire des salles de jeu
 package rooms
 
 import (
 	"encoding/json"
+	"fmt"
 	"html/template"
 	"log"
 	"net/http"
@@ -16,208 +16,182 @@ import (
 
 // Handler gère les requêtes HTTP liées aux salles
 type Handler struct {
-	manager        *Manager
-	sessionManager *auth.SessionManager
-	templates      map[string]*template.Template
-	templateDir    string
+	templateDir string
 }
 
-// NewHandler crée un nouveau handler de salles
+// NewHandler crée un nouveau gestionnaire de salles
 func NewHandler(templateDir string) *Handler {
-	h := &Handler{
-		manager:        GetManager(),
-		sessionManager: auth.NewSessionManager(),
-		templates:      make(map[string]*template.Template),
-		templateDir:    templateDir,
-	}
-
-	// Charger les templates individuellement
-	h.loadTemplates()
-
-	return h
-}
-
-// loadTemplates charge tous les templates
-func (h *Handler) loadTemplates() {
-	templateFiles := []string{
-		"rooms.html",
-		"room.html",
-		"create_room.html",
-		"join_room.html",
-		"index.html",
-	}
-
-	// Fonctions personnalisées pour les templates
-	funcMap := template.FuncMap{
-		"slice": func(s string, start, end int) string {
-			if start >= len(s) {
-				return ""
-			}
-			if end > len(s) {
-				end = len(s)
-			}
-			return s[start:end]
-		},
-		"eq": func(a, b interface{}) bool {
-			return a == b
-		},
-	}
-
-	for _, file := range templateFiles {
-		path := filepath.Join(h.templateDir, file)
-		tmpl, err := template.New(file).Funcs(funcMap).ParseFiles(path)
-		if err != nil {
-			log.Printf("[Rooms] Erreur chargement template %s: %v", file, err)
-			continue
-		}
-		// Utiliser le nom sans extension comme clé
-		name := strings.TrimSuffix(file, ".html")
-		h.templates[name] = tmpl
-		log.Printf("[Rooms] Template chargé: %s", name)
+	return &Handler{
+		templateDir: templateDir,
 	}
 }
 
-// GetManager retourne le manager de salles
-func (h *Handler) GetManager() *Manager {
-	return h.manager
-}
-
-// ============================================================================
-// PAGES HTML
-// ============================================================================
-
-// HandleLobby affiche la page du lobby
+// HandleLobby affiche le lobby avec la liste des salles
 func (h *Handler) HandleLobby(w http.ResponseWriter, r *http.Request) {
-	user, _ := h.sessionManager.GetUserFromRequest(r)
-
-	// Si pas connecté, rediriger vers login
-	if user == nil {
-		http.Redirect(w, r, "/login", http.StatusSeeOther)
+	// Vérifier l'authentification
+	sessionManager := auth.NewSessionManager()
+	user, err := sessionManager.GetUserFromRequest(r)
+	if err != nil {
+		// Rediriger vers la page de connexion si non authentifié
+		http.Redirect(w, r, "/login?redirect="+r.URL.Path, http.StatusSeeOther)
 		return
 	}
 
-	rooms := h.manager.GetAllRooms()
+	// Récupérer toutes les salles
+	manager := GetManager()
+	rooms := manager.GetAllRooms()
 
+	// Préparer les données pour le template
 	data := map[string]interface{}{
 		"Title": "Salles de jeu",
 		"User":  user,
 		"Rooms": rooms,
 	}
 
-	tmpl, ok := h.templates["rooms"]
-	if ok && tmpl != nil {
-		w.Header().Set("Content-Type", "text/html; charset=utf-8")
-		if err := tmpl.Execute(w, data); err != nil {
-			log.Printf("[Rooms] Erreur template lobby: %v", err)
-			http.Error(w, "Erreur interne", http.StatusInternalServerError)
-		}
-	} else {
-		// Fallback JSON si pas de templates
-		log.Printf("[Rooms] Template 'rooms' non trouvé, fallback JSON")
-		w.Header().Set("Content-Type", "application/json")
-		json.NewEncoder(w).Encode(data)
+	// Charger et exécuter le template
+	tmplPath := filepath.Join(h.templateDir, "rooms.html")
+	tmpl, err := template.ParseFiles(tmplPath)
+	if err != nil {
+		log.Printf("[ROOMS] Erreur chargement template rooms.html: %v", err)
+		// Fallback: servir le fichier HTML directement
+		http.ServeFile(w, r, tmplPath)
+		return
+	}
+
+	w.Header().Set("Content-Type", "text/html; charset=utf-8")
+	if err := tmpl.Execute(w, data); err != nil {
+		log.Printf("[ROOMS] Erreur exécution template: %v", err)
+		http.Error(w, "Erreur interne", http.StatusInternalServerError)
+		return
 	}
 }
 
-// HandleRoom affiche la page d'une salle
+// HandleRoom affiche une salle spécifique
 func (h *Handler) HandleRoom(w http.ResponseWriter, r *http.Request) {
-	// Extraire l'ID de la salle de l'URL
-	path := strings.TrimPrefix(r.URL.Path, "/room/")
-	roomID := strings.Split(path, "/")[0]
-
-	if roomID == "" {
-		http.Redirect(w, r, "/lobby", http.StatusSeeOther)
+	// Vérifier l'authentification
+	sessionManager := auth.NewSessionManager()
+	user, err := sessionManager.GetUserFromRequest(r)
+	if err != nil {
+		http.Redirect(w, r, "/login?redirect="+r.URL.Path, http.StatusSeeOther)
 		return
 	}
 
-	// Chercher par code d'abord, puis par ID
-	room, err := h.manager.GetRoomByCode(roomID)
-	if err != nil {
-		room, err = h.manager.GetRoom(roomID)
-		if err != nil {
-			http.Redirect(w, r, "/lobby?error=room_not_found", http.StatusSeeOther)
-			return
-		}
-	}
-
-	user, err := h.sessionManager.GetUserFromRequest(r)
-	if err != nil {
-		http.Redirect(w, r, "/login?redirect=/room/"+roomID, http.StatusSeeOther)
+	// Extraire le code de la salle depuis l'URL
+	code := strings.TrimPrefix(r.URL.Path, "/room/")
+	if code == "" || code == "create" || code == "join" {
+		http.Redirect(w, r, "/rooms", http.StatusSeeOther)
 		return
 	}
 
-	// Faire rejoindre le joueur s'il n'est pas déjà dans la salle
-	room.Mutex.RLock()
-	_, inRoom := room.Players[user.ID]
-	room.Mutex.RUnlock()
-
-	if !inRoom {
-		_, err = h.manager.JoinRoom(room.ID, user.ID, user.Pseudo)
-		if err != nil {
-			http.Redirect(w, r, "/lobby?error="+err.Error(), http.StatusSeeOther)
-			return
-		}
+	// Récupérer la salle
+	manager := GetManager()
+	room, err := manager.GetRoom(code)
+	if err != nil || room == nil {
+		http.Error(w, "Salle introuvable", http.StatusNotFound)
+		return
 	}
 
-	// Vérifier si l'utilisateur est l'hôte
-	isHost := room.HostID == user.ID
+	// Vérifier si l'utilisateur est dans la salle (accès direct au slice Players)
+	var player *models.Player
+	room.Mu.RLock()
+	for _, p := range room.Players {
+		if p.UserID == user.ID {
+			player = p
+			break
+		}
+	}
+	room.Mu.RUnlock()
 
+	if player == nil {
+		// L'utilisateur n'est pas dans la salle, rediriger vers le lobby
+		http.Redirect(w, r, "/rooms?error=not_in_room", http.StatusSeeOther)
+		return
+	}
+
+	// Déterminer le template à utiliser selon le type de jeu
+	var tmplFile string
+	switch room.GameType {
+	case models.GameTypeBlindTest:
+		tmplFile = "room_blindtest.html"
+	case models.GameTypePetitBac:
+		tmplFile = "room_petitbac.html"
+	default:
+		tmplFile = "room.html"
+	}
+
+	// Préparer les données pour le template
 	data := map[string]interface{}{
 		"Title":  room.Name,
 		"User":   user,
 		"Room":   room,
-		"IsHost": isHost,
+		"Player": player,
 	}
 
-	tmpl, ok := h.templates["room"]
-	if ok && tmpl != nil {
-		w.Header().Set("Content-Type", "text/html; charset=utf-8")
-		if err := tmpl.Execute(w, data); err != nil {
-			log.Printf("[Rooms] Erreur template room: %v", err)
-			http.Error(w, "Erreur interne", http.StatusInternalServerError)
-		}
-	} else {
-		w.Header().Set("Content-Type", "application/json")
-		json.NewEncoder(w).Encode(data)
+	// Charger et exécuter le template
+	tmplPath := filepath.Join(h.templateDir, tmplFile)
+	tmpl, err := template.ParseFiles(tmplPath)
+	if err != nil {
+		log.Printf("[ROOMS] Erreur chargement template %s: %v", tmplFile, err)
+		http.Error(w, "Erreur interne", http.StatusInternalServerError)
+		return
+	}
+
+	w.Header().Set("Content-Type", "text/html; charset=utf-8")
+	if err := tmpl.Execute(w, data); err != nil {
+		log.Printf("[ROOMS] Erreur exécution template: %v", err)
+		http.Error(w, "Erreur interne", http.StatusInternalServerError)
+		return
 	}
 }
 
-// ============================================================================
-// API JSON
-// ============================================================================
+// HandleGetRooms renvoie la liste des salles en JSON
+func (h *Handler) HandleGetRooms(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodGet {
+		http.Error(w, "Méthode non autorisée", http.StatusMethodNotAllowed)
+		return
+	}
 
-// HandleCreateRoom gère la création d'une salle (API)
+	manager := GetManager()
+	rooms := manager.GetAllRooms()
+
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(map[string]interface{}{
+		"success": true,
+		"rooms":   rooms,
+	})
+}
+
+// HandleCreateRoom crée une nouvelle salle
 func (h *Handler) HandleCreateRoom(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodPost {
 		http.Error(w, "Méthode non autorisée", http.StatusMethodNotAllowed)
 		return
 	}
 
-	user, err := h.sessionManager.GetUserFromRequest(r)
+	// Vérifier l'authentification
+	sessionManager := auth.NewSessionManager()
+	user, err := sessionManager.GetUserFromRequest(r)
 	if err != nil {
-		jsonError(w, "Non authentifié", http.StatusUnauthorized)
+		http.Error(w, "Non authentifié", http.StatusUnauthorized)
 		return
 	}
 
 	// Parser le formulaire
 	if err := r.ParseForm(); err != nil {
-		jsonError(w, "Données invalides", http.StatusBadRequest)
+		http.Error(w, "Erreur parsing formulaire", http.StatusBadRequest)
 		return
 	}
 
-	// Récupérer le nom de la salle
-	roomName := strings.TrimSpace(r.FormValue("room_name"))
-	if roomName == "" {
-		roomName = strings.TrimSpace(r.FormValue("name"))
-	}
+	roomName := r.FormValue("room_name")
 	gameTypeStr := r.FormValue("game_type")
 
-	// Valider le nom de la salle
-	if len(roomName) < 3 || len(roomName) > 50 {
-		roomName = user.Pseudo + "'s Room"
+	// Validation
+	if roomName == "" {
+		http.Error(w, "Le nom de la salle est requis", http.StatusBadRequest)
+		return
 	}
 
-	// Déterminer le type de jeu
+	// Convertir le type de jeu en models.GameType
 	var gameType models.GameType
 	switch gameTypeStr {
 	case "blindtest":
@@ -225,209 +199,202 @@ func (h *Handler) HandleCreateRoom(w http.ResponseWriter, r *http.Request) {
 	case "petitbac":
 		gameType = models.GameTypePetitBac
 	default:
-		gameType = models.GameTypeBlindTest
+		http.Error(w, "Type de jeu invalide", http.StatusBadRequest)
+		return
 	}
 
-	// Créer la salle avec le nom personnalisé
-	room, err := h.manager.CreateRoom(roomName, user.ID, user.Pseudo, gameType)
+	// Créer la salle avec la bonne signature
+	// CreateRoom(name string, hostID int64, code string, gameType models.GameType)
+	manager := GetManager()
+	room, err := manager.CreateRoom(roomName, user.ID, "", gameType)
 	if err != nil {
-		jsonError(w, err.Error(), http.StatusInternalServerError)
+		log.Printf("[ROOMS] Erreur création salle: %v", err)
+		http.Error(w, "Erreur création salle", http.StatusInternalServerError)
 		return
 	}
 
-	// Redirection vers la salle si c'est une requête de formulaire
-	if r.Header.Get("Content-Type") == "application/x-www-form-urlencoded" {
-		http.Redirect(w, r, "/room/"+room.Code, http.StatusSeeOther)
-		return
-	}
+	log.Printf("[ROOMS] Salle créée: %s (%s) par %s", room.Code, room.Name, user.Pseudo)
 
-	jsonSuccess(w, map[string]interface{}{
-		"room_id": room.ID,
-		"code":    room.Code,
-		"name":    room.Name,
-	})
+	// Rediriger vers la salle
+	http.Redirect(w, r, "/room/"+room.Code, http.StatusSeeOther)
 }
 
-// HandleJoinRoom gère la jonction à une salle par code (API)
+// HandleJoinRoom permet de rejoindre une salle
 func (h *Handler) HandleJoinRoom(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodPost {
 		http.Error(w, "Méthode non autorisée", http.StatusMethodNotAllowed)
 		return
 	}
 
-	user, err := h.sessionManager.GetUserFromRequest(r)
+	// Vérifier l'authentification
+	sessionManager := auth.NewSessionManager()
+	user, err := sessionManager.GetUserFromRequest(r)
 	if err != nil {
-		jsonError(w, "Non authentifié", http.StatusUnauthorized)
+		http.Error(w, "Non authentifié", http.StatusUnauthorized)
 		return
 	}
 
-	// Essayer de parser comme JSON d'abord
-	var code string
-	contentType := r.Header.Get("Content-Type")
-	
-	if strings.Contains(contentType, "application/json") {
-		var req struct {
-			Code string `json:"code"`
-		}
-		if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-			jsonError(w, "Données invalides", http.StatusBadRequest)
-			return
-		}
-		code = req.Code
-	} else {
-		// Formulaire
-		if err := r.ParseForm(); err != nil {
-			jsonError(w, "Données invalides", http.StatusBadRequest)
-			return
-		}
-		code = r.FormValue("code")
+	// Parser le formulaire
+	if err := r.ParseForm(); err != nil {
+		http.Error(w, "Erreur parsing formulaire", http.StatusBadRequest)
+		return
 	}
 
-	code = strings.ToUpper(strings.TrimSpace(code))
-
-	// Trouver la salle par code
-	room, err := h.manager.GetRoomByCode(code)
-	if err != nil {
-		if strings.Contains(contentType, "application/json") {
-			jsonError(w, "Salle non trouvée", http.StatusNotFound)
-		} else {
-			http.Redirect(w, r, "/lobby?error=Salle+non+trouvée", http.StatusSeeOther)
-		}
+	code := strings.ToUpper(strings.TrimSpace(r.FormValue("code")))
+	if code == "" {
+		http.Redirect(w, r, "/room/join?error=Code+requis", http.StatusSeeOther)
 		return
 	}
 
 	// Rejoindre la salle
-	_, err = h.manager.JoinRoom(room.ID, user.ID, user.Pseudo)
-	if err != nil {
-		if strings.Contains(contentType, "application/json") {
-			jsonError(w, err.Error(), http.StatusBadRequest)
-		} else {
-			http.Redirect(w, r, "/lobby?error="+err.Error(), http.StatusSeeOther)
-		}
+	manager := GetManager()
+	room, err := manager.GetRoom(code)
+	if err != nil || room == nil {
+		http.Redirect(w, r, "/room/join?error=Salle+introuvable", http.StatusSeeOther)
 		return
 	}
 
-	// Redirection si formulaire
-	if !strings.Contains(contentType, "application/json") {
+	// Créer le joueur avec les infos de l'utilisateur
+	player := &models.Player{
+		UserID:  user.ID,
+		Pseudo:  user.Pseudo,
+		Score:   0,
+		IsReady: false,
+	}
+
+	// Ajouter le joueur manuellement dans le slice Players
+	room.Mu.Lock()
+	
+	// Vérifier si le joueur n'est pas déjà dans la salle
+	playerExists := false
+	for _, p := range room.Players {
+		if p.UserID == user.ID {
+			playerExists = true
+			break
+		}
+	}
+
+	if playerExists {
+		room.Mu.Unlock()
 		http.Redirect(w, r, "/room/"+room.Code, http.StatusSeeOther)
 		return
 	}
 
-	jsonSuccess(w, map[string]interface{}{
-		"room_id": room.ID,
-	})
+	// Vérifier que la salle n'est pas pleine (max 8 joueurs)
+	if len(room.Players) >= 8 {
+		room.Mu.Unlock()
+		http.Redirect(w, r, "/room/join?error=Salle+pleine", http.StatusSeeOther)
+		return
+	}
+
+	room.Players = append(room.Players, player)
+	room.Mu.Unlock()
+
+	log.Printf("[ROOMS] %s a rejoint la salle %s", user.Pseudo, room.Code)
+
+	// Rediriger vers la salle
+	http.Redirect(w, r, "/room/"+room.Code, http.StatusSeeOther)
 }
 
-// HandleLeaveRoom gère le départ d'une salle (API)
+// HandleLeaveRoom permet de quitter une salle
 func (h *Handler) HandleLeaveRoom(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodPost {
 		http.Error(w, "Méthode non autorisée", http.StatusMethodNotAllowed)
 		return
 	}
 
-	user, err := h.sessionManager.GetUserFromRequest(r)
+	// Vérifier l'authentification
+	sessionManager := auth.NewSessionManager()
+	user, err := sessionManager.GetUserFromRequest(r)
 	if err != nil {
-		jsonError(w, "Non authentifié", http.StatusUnauthorized)
+		http.Error(w, "Non authentifié", http.StatusUnauthorized)
 		return
 	}
 
+	// Parser le JSON
 	var req struct {
-		RoomID string `json:"room_id"`
+		RoomCode string `json:"room_code"`
 	}
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-		jsonError(w, "Données invalides", http.StatusBadRequest)
+		http.Error(w, "Erreur parsing JSON", http.StatusBadRequest)
 		return
 	}
 
-	if err := h.manager.LeaveRoom(req.RoomID, user.ID); err != nil {
-		jsonError(w, err.Error(), http.StatusBadRequest)
+	// Récupérer la salle
+	manager := GetManager()
+	room, err := manager.GetRoom(req.RoomCode)
+	if err != nil || room == nil {
+		http.Error(w, "Salle introuvable", http.StatusNotFound)
 		return
 	}
 
-	jsonSuccess(w, nil)
+	// Retirer le joueur du slice Players
+	room.Mu.Lock()
+	for i, p := range room.Players {
+		if p.UserID == user.ID {
+			room.Players = append(room.Players[:i], room.Players[i+1:]...)
+			break
+		}
+	}
+	room.Mu.Unlock()
+
+	log.Printf("[ROOMS] %s a quitté la salle %s", user.Pseudo, room.Code)
+
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(map[string]interface{}{
+		"success": true,
+		"message": "Vous avez quitté la salle",
+	})
 }
 
-// HandleRestartRoom redémarre une partie (API)
+// HandleRestartRoom redémarre une partie terminée
 func (h *Handler) HandleRestartRoom(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodPost {
 		http.Error(w, "Méthode non autorisée", http.StatusMethodNotAllowed)
 		return
 	}
 
-	user, err := h.sessionManager.GetUserFromRequest(r)
+	// Vérifier l'authentification
+	sessionManager := auth.NewSessionManager()
+	user, err := sessionManager.GetUserFromRequest(r)
 	if err != nil {
-		jsonError(w, "Non authentifié", http.StatusUnauthorized)
+		http.Error(w, "Non authentifié", http.StatusUnauthorized)
 		return
 	}
 
-	// Extraire l'ID de la salle
+	// Extraire le code depuis l'URL (/api/rooms/{code}/restart)
 	path := strings.TrimPrefix(r.URL.Path, "/api/rooms/")
-	roomID := strings.TrimSuffix(path, "/restart")
+	code := strings.TrimSuffix(path, "/restart")
+
+	// Récupérer la salle
+	manager := GetManager()
+	room, err := manager.GetRoom(code)
+	if err != nil || room == nil {
+		http.Error(w, "Salle introuvable", http.StatusNotFound)
+		return
+	}
 
 	// Vérifier que l'utilisateur est l'hôte
-	if !h.manager.IsHost(roomID, user.ID) {
-		jsonError(w, "Seul l'hôte peut relancer la partie", http.StatusForbidden)
+	if room.HostID != user.ID {
+		http.Error(w, "Seul l'hôte peut redémarrer la partie", http.StatusForbidden)
 		return
 	}
 
-	// Remettre la salle en attente
-	if err := h.manager.UpdateRoomStatus(roomID, models.RoomStatusWaiting); err != nil {
-		jsonError(w, err.Error(), http.StatusInternalServerError)
-		return
+	// Redémarrer la partie (réinitialiser les scores et le statut)
+	room.Mu.Lock()
+	room.Status = models.RoomStatusWaiting
+	for _, player := range room.Players {
+		player.Score = 0
+		player.IsReady = false
 	}
+	room.Mu.Unlock()
 
-	// Remettre les scores à zéro
-	h.manager.ResetPlayerScores(roomID)
-
-	// Remettre tous les joueurs en "non prêt"
-	room, _ := h.manager.GetRoom(roomID)
-	if room != nil {
-		room.Mutex.Lock()
-		for _, player := range room.Players {
-			player.IsReady = false
-		}
-		room.Mutex.Unlock()
-	}
-
-	jsonSuccess(w, nil)
-}
-
-// HandleGetRooms retourne la liste des salles (API)
-func (h *Handler) HandleGetRooms(w http.ResponseWriter, r *http.Request) {
-	status := r.URL.Query().Get("status")
-
-	var roomsList []*models.Room
-	if status != "" {
-		roomsList = h.manager.GetRoomsByStatus(models.RoomStatus(status))
-	} else {
-		roomsList = h.manager.GetAllRooms()
-	}
+	log.Printf("[ROOMS] Partie redémarrée dans la salle %s par %s", room.Code, user.Pseudo)
 
 	w.Header().Set("Content-Type", "application/json")
 	json.NewEncoder(w).Encode(map[string]interface{}{
 		"success": true,
-		"rooms":   roomsList,
+		"message": "Partie redémarrée",
 	})
 }
 
-// ============================================================================
-// FONCTIONS UTILITAIRES JSON
-// ============================================================================
-
-func jsonError(w http.ResponseWriter, message string, status int) {
-	w.Header().Set("Content-Type", "application/json")
-	w.WriteHeader(status)
-	json.NewEncoder(w).Encode(map[string]interface{}{
-		"success": false,
-		"error":   message,
-	})
-}
-
-func jsonSuccess(w http.ResponseWriter, data map[string]interface{}) {
-	w.Header().Set("Content-Type", "application/json")
-	if data == nil {
-		data = make(map[string]interface{})
-	}
-	data["success"] = true
-	json.NewEncoder(w).Encode(data)
-}
