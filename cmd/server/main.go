@@ -79,13 +79,16 @@ func main() {
 	_ = blindtestMgr
 	_ = petitbacMgr
 
-	// Initialiser le hub WebSocket
-	wsHub := websocket.GetHub()
-	log.Println("[OK] Hub WebSocket initialisé")
+	// Initialiser le handler WebSocket (pas le hub directement)
+	wsHandler := websocket.NewHandler()
+	log.Println("[OK] Handler WebSocket initialisé")
 
 	// Initialiser les handlers
 	authHandler := auth.NewHandler(config.TemplateDir)
 	roomHandler := rooms.NewHandler(config.TemplateDir)
+
+	// Initialiser le middleware d'authentification
+	authMiddleware := auth.NewMiddleware()
 
 	// Créer le routeur
 	mux := http.NewServeMux()
@@ -140,9 +143,9 @@ func main() {
 	}))
 
 	// ============================================================================
-	// WEBSOCKET
+	// WEBSOCKET (avec middleware d'authentification)
 	// ============================================================================
-	mux.HandleFunc("/ws/room/", wsHub.HandleConnection)
+	mux.Handle("/ws/room/", authMiddleware.RequireAuth(http.HandlerFunc(wsHandler.HandleWebSocket)))
 
 	// ============================================================================
 	// MIDDLEWARE & SERVEUR

@@ -5,6 +5,7 @@ package websocket
 import (
 	"log"
 	"net/http"
+	"strings"
 
 	"github.com/gorilla/websocket"
 	"groupie-tracker/internal/auth"
@@ -51,25 +52,36 @@ func (h *Handler) SetPetitBacHandler(handler func(*Client, *models.WSMessage)) {
 
 // HandleWebSocket gère les nouvelles connexions WebSocket
 func (h *Handler) HandleWebSocket(w http.ResponseWriter, r *http.Request) {
-	// Récupérer l'utilisateur depuis le contexte
+	// Récupérer l'utilisateur depuis le contexte (injecté par le middleware auth)
 	user := auth.GetUserFromContext(r.Context())
 	if user == nil {
 		http.Error(w, "Non authentifié", http.StatusUnauthorized)
 		return
 	}
 
-	// Récupérer le code de la salle depuis les paramètres
+	// Récupérer le code de la salle depuis l'URL
+	// URL format: /ws/room/{roomCode} ou /ws/room/?room={roomCode}
 	roomCode := r.URL.Query().Get("room")
+	if roomCode == "" {
+		// Essayer d'extraire depuis le path
+		path := strings.TrimPrefix(r.URL.Path, "/ws/room/")
+		roomCode = strings.TrimSuffix(path, "/")
+	}
+	
 	if roomCode == "" {
 		http.Error(w, "Code de salle manquant", http.StatusBadRequest)
 		return
 	}
 
-	// Vérifier que la salle existe
-	room, err := h.roomManager.GetRoom(roomCode)
+	// Vérifier que la salle existe (chercher par code ou ID)
+	room, err := h.roomManager.GetRoomByCode(roomCode)
 	if err != nil {
-		http.Error(w, "Salle non trouvée", http.StatusNotFound)
-		return
+		// Essayer par ID
+		room, err = h.roomManager.GetRoom(roomCode)
+		if err != nil {
+			http.Error(w, "Salle non trouvée", http.StatusNotFound)
+			return
+		}
 	}
 
 	// Vérifier que l'utilisateur est dans la salle
@@ -89,8 +101,8 @@ func (h *Handler) HandleWebSocket(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Créer le client
-	client := NewClient(h.hub, conn, user.ID, user.Pseudo, roomCode, h.handleMessage)
+	// Créer le client (utiliser room.Code pour cohérence)
+	client := NewClient(h.hub, conn, user.ID, user.Pseudo, room.Code, h.handleMessage)
 
 	// Enregistrer le client
 	h.hub.Register(client)
@@ -103,7 +115,7 @@ func (h *Handler) HandleWebSocket(w http.ResponseWriter, r *http.Request) {
 	room.Mutex.Unlock()
 
 	// Notifier les autres joueurs
-	h.hub.BroadcastExcept(roomCode, &models.WSMessage{
+	h.hub.BroadcastExcept(room.Code, &models.WSMessage{
 		Type: models.WSTypePlayerJoined,
 		Payload: map[string]interface{}{
 			"user_id": user.ID,
@@ -120,10 +132,14 @@ func (h *Handler) HandleWebSocket(w http.ResponseWriter, r *http.Request) {
 
 // handleMessage traite les messages reçus des clients
 func (h *Handler) handleMessage(client *Client, msg *models.WSMessage) {
-	room, err := h.roomManager.GetRoom(client.RoomCode)
+	room, err := h.roomManager.GetRoomByCode(client.RoomCode)
 	if err != nil {
-		client.SendError("Salle non trouvée")
-		return
+		// Essayer par ID
+		room, err = h.roomManager.GetRoom(client.RoomCode)
+		if err != nil {
+			client.SendError("Salle non trouvée")
+			return
+		}
 	}
 
 	switch msg.Type {
@@ -162,14 +178,14 @@ func (h *Handler) handlePlayerReady(client *Client, room *models.Room, msg *mode
 
 	ready, _ := payload["ready"].(bool)
 
-	err := h.roomManager.SetPlayerReady(client.RoomCode, client.UserID, ready)
+	err := h.roomManager.SetPlayerReady(room.ID, client.UserID, ready)
 	if err != nil {
 		client.SendError(err.Error())
 		return
 	}
 
 	// Notifier tous les joueurs
-	h.hub.Broadcast(client.RoomCode, &models.WSMessage{
+	h.hub.Broadcast(room.Code, &models.WSMessage{
 		Type: models.WSTypePlayerReady,
 		Payload: map[string]interface{}{
 			"user_id": client.UserID,
@@ -180,7 +196,7 @@ func (h *Handler) handlePlayerReady(client *Client, room *models.Room, msg *mode
 
 	// Vérifier si la salle est prête
 	if models.IsRoomReady(room) {
-		h.hub.Broadcast(client.RoomCode, &models.WSMessage{
+		h.hub.Broadcast(room.Code, &models.WSMessage{
 			Type: models.WSTypeRoomUpdate,
 			Payload: map[string]interface{}{
 				"is_ready": true,
@@ -190,15 +206,15 @@ func (h *Handler) handlePlayerReady(client *Client, room *models.Room, msg *mode
 }
 
 // handleLeaveRoom gère le départ d'un joueur
-func (h *Handler) handleLeaveRoom(client *Client, _ *models.Room) {
-	err := h.roomManager.LeaveRoom(client.RoomCode, client.UserID)
+func (h *Handler) handleLeaveRoom(client *Client, room *models.Room) {
+	err := h.roomManager.LeaveRoom(room.ID, client.UserID)
 	if err != nil {
 		client.SendError(err.Error())
 		return
 	}
 
 	// Notifier les autres joueurs
-	h.hub.BroadcastExcept(client.RoomCode, &models.WSMessage{
+	h.hub.BroadcastExcept(room.Code, &models.WSMessage{
 		Type: models.WSTypePlayerLeft,
 		Payload: map[string]interface{}{
 			"user_id": client.UserID,
@@ -224,15 +240,15 @@ func (h *Handler) handleStartGame(client *Client, room *models.Room) {
 		return
 	}
 
-	// Démarrer la partie
-	err := h.roomManager.StartGame(client.RoomCode, client.UserID)
+	// Démarrer la partie (la méthode StartGame du manager ne prend qu'un argument: roomID)
+	err := h.roomManager.StartGame(room.ID)
 	if err != nil {
 		client.SendError(err.Error())
 		return
 	}
 
 	// Notifier tous les joueurs
-	h.hub.Broadcast(client.RoomCode, &models.WSMessage{
+	h.hub.Broadcast(room.Code, &models.WSMessage{
 		Type: models.WSTypeStartGame,
 		Payload: map[string]interface{}{
 			"game_type": room.GameType,

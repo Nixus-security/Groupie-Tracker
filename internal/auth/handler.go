@@ -447,3 +447,26 @@ func (h *Handler) renderBasicLoginPage(w http.ResponseWriter, data map[string]in
 	tmpl, _ := template.New("login").Parse(html)
 	tmpl.Execute(w, data)
 }
+
+// HandleLogin gère GET et POST pour /login
+func (h *Handler) HandleLogin(w http.ResponseWriter, r *http.Request) {
+	if r.Method == http.MethodPost {
+		h.handleLoginForm(w, r)
+		return
+	}
+	h.LoginPage(w, r)
+}
+
+// HandleRegister gère GET et POST pour /register
+func (h *Handler) HandleRegister(w http.ResponseWriter, r *http.Request) {
+	if r.Method == http.MethodPost {
+		h.handleRegisterForm(w, r)
+		return
+	}
+	h.RegisterPage(w, r)
+}
+
+// HandleLogout gère la déconnexion
+func (h *Handler) HandleLogout(w http.ResponseWriter, r *http.Request) {
+	h.Logout(w, r)
+}

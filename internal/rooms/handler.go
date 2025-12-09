@@ -18,31 +18,46 @@ import (
 type Handler struct {
 	manager        *Manager
 	sessionManager *auth.SessionManager
-	templates      *template.Template
+	templates      map[string]*template.Template
+	templateDir    string
 }
 
 // NewHandler crée un nouveau handler de salles
 func NewHandler(templateDir string) *Handler {
-	// Charger les templates
-	tmpl, err := template.ParseGlob(filepath.Join(templateDir, "*.html"))
-	if err != nil {
-		log.Printf("[Rooms] Erreur chargement templates: %v", err)
-	}
-
-	// Charger les partials
-	if tmpl != nil {
-		partials, err := template.ParseGlob(filepath.Join(templateDir, "partials", "*.html"))
-		if err == nil && partials != nil {
-			for _, t := range partials.Templates() {
-				tmpl.AddParseTree(t.Name(), t.Tree)
-			}
-		}
-	}
-
-	return &Handler{
+	h := &Handler{
 		manager:        GetManager(),
 		sessionManager: auth.NewSessionManager(),
-		templates:      tmpl,
+		templates:      make(map[string]*template.Template),
+		templateDir:    templateDir,
+	}
+
+	// Charger les templates individuellement
+	h.loadTemplates()
+
+	return h
+}
+
+// loadTemplates charge tous les templates
+func (h *Handler) loadTemplates() {
+	templateFiles := []string{
+		"rooms.html",
+		"room.html",
+		"create_room.html",
+		"join_room.html",
+		"index.html",
+	}
+
+	for _, file := range templateFiles {
+		path := filepath.Join(h.templateDir, file)
+		tmpl, err := template.ParseFiles(path)
+		if err != nil {
+			log.Printf("[Rooms] Erreur chargement template %s: %v", file, err)
+			continue
+		}
+		// Utiliser le nom sans extension comme clé
+		name := strings.TrimSuffix(file, ".html")
+		h.templates[name] = tmpl
+		log.Printf("[Rooms] Template chargé: %s", name)
 	}
 }
 
@@ -68,17 +83,21 @@ func (h *Handler) HandleLobby(w http.ResponseWriter, r *http.Request) {
 	rooms := h.manager.GetAllRooms()
 
 	data := map[string]interface{}{
+		"Title": "Salles de jeu",
 		"User":  user,
 		"Rooms": rooms,
 	}
 
-	if h.templates != nil {
-		if err := h.templates.ExecuteTemplate(w, "lobby", data); err != nil {
+	tmpl, ok := h.templates["rooms"]
+	if ok && tmpl != nil {
+		w.Header().Set("Content-Type", "text/html; charset=utf-8")
+		if err := tmpl.Execute(w, data); err != nil {
 			log.Printf("[Rooms] Erreur template lobby: %v", err)
 			http.Error(w, "Erreur interne", http.StatusInternalServerError)
 		}
 	} else {
 		// Fallback JSON si pas de templates
+		log.Printf("[Rooms] Template 'rooms' non trouvé, fallback JSON")
 		w.Header().Set("Content-Type", "application/json")
 		json.NewEncoder(w).Encode(data)
 	}
@@ -95,10 +114,14 @@ func (h *Handler) HandleRoom(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	room, err := h.manager.GetRoom(roomID)
+	// Chercher par code d'abord, puis par ID
+	room, err := h.manager.GetRoomByCode(roomID)
 	if err != nil {
-		http.Redirect(w, r, "/lobby?error=room_not_found", http.StatusSeeOther)
-		return
+		room, err = h.manager.GetRoom(roomID)
+		if err != nil {
+			http.Redirect(w, r, "/lobby?error=room_not_found", http.StatusSeeOther)
+			return
+		}
 	}
 
 	user, err := h.sessionManager.GetUserFromRequest(r)
@@ -113,7 +136,7 @@ func (h *Handler) HandleRoom(w http.ResponseWriter, r *http.Request) {
 	room.Mutex.RUnlock()
 
 	if !inRoom {
-		_, err = h.manager.JoinRoom(roomID, user.ID, user.Pseudo)
+		_, err = h.manager.JoinRoom(room.ID, user.ID, user.Pseudo)
 		if err != nil {
 			http.Redirect(w, r, "/lobby?error="+err.Error(), http.StatusSeeOther)
 			return
@@ -124,13 +147,16 @@ func (h *Handler) HandleRoom(w http.ResponseWriter, r *http.Request) {
 	isHost := room.HostID == user.ID
 
 	data := map[string]interface{}{
+		"Title":  room.Name,
 		"User":   user,
 		"Room":   room,
 		"IsHost": isHost,
 	}
 
-	if h.templates != nil {
-		if err := h.templates.ExecuteTemplate(w, "room", data); err != nil {
+	tmpl, ok := h.templates["room"]
+	if ok && tmpl != nil {
+		w.Header().Set("Content-Type", "text/html; charset=utf-8")
+		if err := tmpl.Execute(w, data); err != nil {
 			log.Printf("[Rooms] Erreur template room: %v", err)
 			http.Error(w, "Erreur interne", http.StatusInternalServerError)
 		}
@@ -163,13 +189,15 @@ func (h *Handler) HandleCreateRoom(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Récupérer le nom de la salle (NOUVEAU: nom personnalisé, pas le pseudo)
+	// Récupérer le nom de la salle
 	roomName := strings.TrimSpace(r.FormValue("room_name"))
+	if roomName == "" {
+		roomName = strings.TrimSpace(r.FormValue("name"))
+	}
 	gameTypeStr := r.FormValue("game_type")
 
 	// Valider le nom de la salle
 	if len(roomName) < 3 || len(roomName) > 50 {
-		// Si pas de nom valide, utiliser un nom par défaut
 		roomName = user.Pseudo + "'s Room"
 	}
 
@@ -188,6 +216,12 @@ func (h *Handler) HandleCreateRoom(w http.ResponseWriter, r *http.Request) {
 	room, err := h.manager.CreateRoom(roomName, user.ID, user.Pseudo, gameType)
 	if err != nil {
 		jsonError(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+
+	// Redirection vers la salle si c'est une requête de formulaire
+	if r.Header.Get("Content-Type") == "application/x-www-form-urlencoded" {
+		http.Redirect(w, r, "/room/"+room.Code, http.StatusSeeOther)
 		return
 	}
 
@@ -211,25 +245,55 @@ func (h *Handler) HandleJoinRoom(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	var req struct {
-		Code string `json:"code"`
-	}
-	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-		jsonError(w, "Données invalides", http.StatusBadRequest)
-		return
+	// Essayer de parser comme JSON d'abord
+	var code string
+	contentType := r.Header.Get("Content-Type")
+	
+	if strings.Contains(contentType, "application/json") {
+		var req struct {
+			Code string `json:"code"`
+		}
+		if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+			jsonError(w, "Données invalides", http.StatusBadRequest)
+			return
+		}
+		code = req.Code
+	} else {
+		// Formulaire
+		if err := r.ParseForm(); err != nil {
+			jsonError(w, "Données invalides", http.StatusBadRequest)
+			return
+		}
+		code = r.FormValue("code")
 	}
 
+	code = strings.ToUpper(strings.TrimSpace(code))
+
 	// Trouver la salle par code
-	room, err := h.manager.GetRoomByCode(req.Code)
+	room, err := h.manager.GetRoomByCode(code)
 	if err != nil {
-		jsonError(w, "Salle non trouvée", http.StatusNotFound)
+		if strings.Contains(contentType, "application/json") {
+			jsonError(w, "Salle non trouvée", http.StatusNotFound)
+		} else {
+			http.Redirect(w, r, "/lobby?error=Salle+non+trouvée", http.StatusSeeOther)
+		}
 		return
 	}
 
 	// Rejoindre la salle
 	_, err = h.manager.JoinRoom(room.ID, user.ID, user.Pseudo)
 	if err != nil {
-		jsonError(w, err.Error(), http.StatusBadRequest)
+		if strings.Contains(contentType, "application/json") {
+			jsonError(w, err.Error(), http.StatusBadRequest)
+		} else {
+			http.Redirect(w, r, "/lobby?error="+err.Error(), http.StatusSeeOther)
+		}
+		return
+	}
+
+	// Redirection si formulaire
+	if !strings.Contains(contentType, "application/json") {
+		http.Redirect(w, r, "/room/"+room.Code, http.StatusSeeOther)
 		return
 	}
 
