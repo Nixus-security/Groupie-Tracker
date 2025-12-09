@@ -2,403 +2,322 @@
 package blindtest
 
 import (
+	"encoding/json"
 	"log"
+	"math/rand/v2"
+	"net/http"
+	"strconv"
 	"strings"
 	"sync"
 	"time"
-	"unicode"
 
 	"groupie-tracker/internal/models"
 	"groupie-tracker/internal/rooms"
 	"groupie-tracker/internal/spotify"
-	"groupie-tracker/internal/websocket"
 )
 
-// GameManager gère toutes les parties de Blind Test en cours
+// GameState représente l'état d'une partie de Blind Test
+type GameState struct {
+	RoomID       string                `json:"room_id"`
+	CurrentRound int                   `json:"current_round"`
+	TotalRounds  int                   `json:"total_rounds"`
+	CurrentTrack *models.SpotifyTrack  `json:"current_track,omitempty"`
+	Tracks       []*models.SpotifyTrack `json:"-"` // Ne pas exposer les réponses
+	TimeLeft     int                   `json:"time_left"`
+	Answers      map[int64]string      `json:"answers"`     // UserID -> réponse
+	HasAnswered  map[int64]bool        `json:"has_answered"` // UserID -> a répondu
+	IsRevealed   bool                  `json:"is_revealed"`
+	Timer        *time.Timer           `json:"-"`
+	Mutex        sync.RWMutex          `json:"-"`
+}
+
+// GameManager gère toutes les parties de Blind Test actives
 type GameManager struct {
-	games   map[string]*Game // roomCode -> Game
-	mutex   sync.RWMutex
-	hub     *websocket.Hub
-	rooms   *rooms.Manager
-	spotify *spotify.Client
+	games       map[string]*GameState // RoomID -> GameState
+	mutex       sync.RWMutex
+	roomManager *rooms.Manager
 }
-
-// Game représente une partie de Blind Test
-type Game struct {
-	RoomCode     string
-	Tracks       []*models.SpotifyTrack
-	CurrentRound int
-	TotalRounds  int
-	TimePerRound int
-	Scores       map[int64]int       // userID -> score total
-	RoundScores  map[int64][]int     // userID -> scores par manche
-	Answers      map[int64]*Answer   // Réponses de la manche en cours
-	CurrentTrack *models.SpotifyTrack
-	RoundStart   time.Time
-	Status       string // "waiting", "playing", "revealing", "finished"
-	Timer        *time.Timer
-	Mutex        sync.RWMutex
-}
-
-// Answer représente une réponse d'un joueur
-type Answer struct {
-	UserID    int64
-	Pseudo    string
-	Answer    string
-	Timestamp time.Time
-	Correct   bool
-	Points    int
-}
-
-// Points selon la rapidité
-const (
-	PointsFirst  = 5
-	PointsSecond = 3
-	PointsThird  = 2
-	PointsOther  = 1
-)
 
 var (
-	managerInstance *GameManager
-	managerOnce     sync.Once
+	gameManagerInstance *GameManager
+	gameManagerOnce     sync.Once
 )
 
-// GetManager retourne l'instance singleton du GameManager
-func GetManager() *GameManager {
-	managerOnce.Do(func() {
-		managerInstance = &GameManager{
-			games:   make(map[string]*Game),
-			hub:     websocket.GetHub(),
-			rooms:   rooms.GetManager(),
-			spotify: spotify.GetClient(),
+// GetGameManager retourne l'instance singleton du GameManager
+func GetGameManager() *GameManager {
+	gameManagerOnce.Do(func() {
+		gameManagerInstance = &GameManager{
+			games:       make(map[string]*GameState),
+			roomManager: rooms.GetManager(),
 		}
 	})
-	return managerInstance
+	return gameManagerInstance
 }
 
 // StartGame démarre une nouvelle partie de Blind Test
-func (gm *GameManager) StartGame(roomCode string) error {
-	room, err := gm.rooms.GetRoom(roomCode)
-	if err != nil {
-		return err
-	}
-
+func (gm *GameManager) StartGame(roomID string, genre string, rounds int) (*GameState, error) {
 	// Récupérer les pistes depuis Spotify
-	tracks, err := gm.spotify.GetRandomTracksForBlindTest(room.Config.Playlist, 10)
+	client := spotify.GetClient()
+	if client == nil {
+		log.Println("[BlindTest] Client Spotify non initialisé")
+		return nil, spotify.ErrNoToken
+	}
+
+	tracks, err := client.GetRandomTracksForBlindTest(genre, rounds)
 	if err != nil {
-		return err
+		log.Printf("[BlindTest] Erreur récupération pistes: %v", err)
+		return nil, err
 	}
 
-	game := &Game{
-		RoomCode:     roomCode,
-		Tracks:       tracks,
+	// S'assurer qu'on a assez de pistes
+	if len(tracks) < rounds {
+		rounds = len(tracks)
+	}
+
+	// Créer l'état du jeu
+	state := &GameState{
+		RoomID:       roomID,
 		CurrentRound: 0,
-		TotalRounds:  len(tracks),
-		TimePerRound: room.Config.TimePerRound,
-		Scores:       make(map[int64]int),
-		RoundScores:  make(map[int64][]int),
-		Answers:      make(map[int64]*Answer),
-		Status:       "playing",
+		TotalRounds:  rounds,
+		Tracks:       tracks,
+		Answers:      make(map[int64]string),
+		HasAnswered:  make(map[int64]bool),
+		IsRevealed:   false,
 	}
-
-	// Initialiser les scores pour chaque joueur
-	room.Mutex.RLock()
-	for userID := range room.Players {
-		game.Scores[userID] = 0
-		game.RoundScores[userID] = make([]int, 0)
-	}
-	room.Mutex.RUnlock()
 
 	gm.mutex.Lock()
-	gm.games[roomCode] = game
+	gm.games[roomID] = state
 	gm.mutex.Unlock()
 
-	// Démarrer la première manche
-	gm.startRound(game)
+	// Mettre à jour le statut de la salle
+	gm.roomManager.UpdateRoomStatus(roomID, models.RoomStatusPlaying)
+	gm.roomManager.ResetPlayerScores(roomID)
 
-	return nil
+	log.Printf("[BlindTest] Partie démarrée dans la salle %s avec %d manches", roomID, rounds)
+	return state, nil
 }
 
-// startRound démarre une nouvelle manche
-func (gm *GameManager) startRound(game *Game) {
-	game.Mutex.Lock()
-	
-	game.CurrentRound++
-	if game.CurrentRound > game.TotalRounds {
-		game.Mutex.Unlock()
-		gm.endGame(game)
-		return
-	}
-
-	game.CurrentTrack = game.Tracks[game.CurrentRound-1]
-	game.Answers = make(map[int64]*Answer)
-	game.RoundStart = time.Now()
-	game.Status = "playing"
-
-	roundInfo := map[string]interface{}{
-		"round":        game.CurrentRound,
-		"total_rounds": game.TotalRounds,
-		"preview_url":  game.CurrentTrack.PreviewURL,
-		"image_url":    game.CurrentTrack.ImageURL,
-		"duration":     game.TimePerRound,
-	}
-	roomCode := game.RoomCode
-	timePerRound := game.TimePerRound
-	
-	game.Mutex.Unlock()
-
-	// Notifier les joueurs de la nouvelle manche
-	gm.hub.Broadcast(roomCode, &models.WSMessage{
-		Type:    models.WSTypeBTNewRound,
-		Payload: roundInfo,
-	})
-
-	log.Printf("🎵 Blind Test %s: Manche %d - %s", roomCode, game.CurrentRound, game.CurrentTrack.Name)
-
-	// Timer pour la fin de manche
-	game.Timer = time.AfterFunc(time.Duration(timePerRound)*time.Second, func() {
-		gm.endRound(game)
-	})
-}
-
-// endRound termine la manche en cours
-func (gm *GameManager) endRound(game *Game) {
-	game.Mutex.Lock()
-	defer game.Mutex.Unlock()
-
-	if game.Status != "playing" {
-		return
-	}
-	game.Status = "revealing"
-
-	if game.Timer != nil {
-		game.Timer.Stop()
-	}
-
-	// Calculer les scores
-	gm.calculateRoundScores(game)
-
-	// Construire le classement de la manche
-	results := make([]map[string]interface{}, 0)
-	for _, answer := range game.Answers {
-		results = append(results, map[string]interface{}{
-			"user_id": answer.UserID,
-			"pseudo":  answer.Pseudo,
-			"answer":  answer.Answer,
-			"correct": answer.Correct,
-			"points":  answer.Points,
-		})
-	}
-
-	// Envoyer les résultats
-	gm.hub.Broadcast(game.RoomCode, &models.WSMessage{
-		Type: models.WSTypeBTResult,
-		Payload: map[string]interface{}{
-			"round":    game.CurrentRound,
-			"track":    game.CurrentTrack,
-			"results":  results,
-			"scores":   game.Scores,
-		},
-	})
-
-	// Pause avant la prochaine manche
-	time.AfterFunc(5*time.Second, func() {
-		gm.startRound(game)
-	})
-}
-
-// SubmitAnswer soumet une réponse d'un joueur
-func (gm *GameManager) SubmitAnswer(roomCode string, userID int64, pseudo, answer string) {
+// GetGameState retourne l'état actuel du jeu
+func (gm *GameManager) GetGameState(roomID string) *GameState {
 	gm.mutex.RLock()
-	game, exists := gm.games[roomCode]
-	gm.mutex.RUnlock()
+	defer gm.mutex.RUnlock()
+	return gm.games[roomID]
+}
 
-	if !exists {
-		return
+// NextRound passe à la manche suivante
+func (gm *GameManager) NextRound(roomID string) (*RoundInfo, error) {
+	state := gm.GetGameState(roomID)
+	if state == nil {
+		return nil, rooms.ErrRoomNotFound
 	}
 
-	game.Mutex.Lock()
-	defer game.Mutex.Unlock()
+	state.Mutex.Lock()
+	defer state.Mutex.Unlock()
 
-	if game.Status != "playing" {
-		return
+	// Vérifier si le jeu est terminé
+	if state.CurrentRound >= state.TotalRounds {
+		return nil, nil // Jeu terminé
 	}
+
+	// Réinitialiser pour la nouvelle manche
+	state.CurrentRound++
+	state.CurrentTrack = state.Tracks[state.CurrentRound-1]
+	state.TimeLeft = models.BlindTestDefaultTime
+	state.Answers = make(map[int64]string)
+	state.HasAnswered = make(map[int64]bool)
+	state.IsRevealed = false
+
+	log.Printf("[BlindTest] Manche %d/%d - Piste: %s", state.CurrentRound, state.TotalRounds, state.CurrentTrack.Name)
+
+	return &RoundInfo{
+		Round:      state.CurrentRound,
+		Total:      state.TotalRounds,
+		PreviewURL: state.CurrentTrack.PreviewURL,
+		Duration:   state.TimeLeft,
+	}, nil
+}
+
+// RoundInfo informations envoyées aux joueurs pour une manche
+type RoundInfo struct {
+	Round      int    `json:"round"`
+	Total      int    `json:"total"`
+	PreviewURL string `json:"preview_url"`
+	Duration   int    `json:"duration"`
+}
+
+// SubmitAnswer soumet une réponse pour un joueur
+func (gm *GameManager) SubmitAnswer(roomID string, userID int64, answer string) (*AnswerResult, error) {
+	state := gm.GetGameState(roomID)
+	if state == nil {
+		return nil, rooms.ErrRoomNotFound
+	}
+
+	state.Mutex.Lock()
+	defer state.Mutex.Unlock()
 
 	// Vérifier si le joueur a déjà répondu
-	if _, exists := game.Answers[userID]; exists {
-		return
+	if state.HasAnswered[userID] {
+		return &AnswerResult{AlreadyAnswered: true}, nil
 	}
+
+	// Enregistrer la réponse
+	state.Answers[userID] = answer
+	state.HasAnswered[userID] = true
 
 	// Vérifier si la réponse est correcte
-	correct := isCorrectAnswer(answer, game.CurrentTrack.Name, game.CurrentTrack.Artist)
+	isCorrect := checkAnswer(answer, state.CurrentTrack.Name, state.CurrentTrack.Artist)
 
-	game.Answers[userID] = &Answer{
-		UserID:    userID,
-		Pseudo:    pseudo,
-		Answer:    answer,
-		Timestamp: time.Now(),
-		Correct:   correct,
+	// Calculer les points
+	points := 0
+	if isCorrect {
+		// Plus de points si réponse rapide
+		points = calculatePoints(state.TimeLeft, models.BlindTestDefaultTime)
+		gm.roomManager.AddPlayerScore(roomID, userID, points)
 	}
 
-	log.Printf("🎤 Blind Test %s: %s a répondu '%s' (correct: %v)", roomCode, pseudo, answer, correct)
+	log.Printf("[BlindTest] Réponse de %d: %s (correct: %v, points: %d)", userID, answer, isCorrect, points)
 
-	// Si réponse correcte, notifier les autres
-	if correct {
-		gm.hub.Broadcast(roomCode, &models.WSMessage{
-			Type: models.WSTypeBTAnswer,
-			Payload: map[string]interface{}{
-				"user_id": userID,
-				"pseudo":  pseudo,
-				"correct": true,
-			},
+	return &AnswerResult{
+		IsCorrect: isCorrect,
+		Points:    points,
+	}, nil
+}
+
+// AnswerResult résultat d'une réponse
+type AnswerResult struct {
+	IsCorrect       bool `json:"is_correct"`
+	Points          int  `json:"points"`
+	AlreadyAnswered bool `json:"already_answered"`
+}
+
+// RevealAnswer révèle la réponse de la manche actuelle
+func (gm *GameManager) RevealAnswer(roomID string) *RevealInfo {
+	state := gm.GetGameState(roomID)
+	if state == nil {
+		return nil
+	}
+
+	state.Mutex.Lock()
+	defer state.Mutex.Unlock()
+
+	state.IsRevealed = true
+
+	return &RevealInfo{
+		TrackName:  state.CurrentTrack.Name,
+		ArtistName: state.CurrentTrack.Artist,
+		AlbumName:  state.CurrentTrack.Album,
+		ImageURL:   state.CurrentTrack.ImageURL,
+	}
+}
+
+// RevealInfo informations de révélation
+type RevealInfo struct {
+	TrackName  string `json:"track_name"`
+	ArtistName string `json:"artist_name"`
+	AlbumName  string `json:"album_name"`
+	ImageURL   string `json:"image_url"`
+}
+
+// GetScores retourne les scores actuels
+func (gm *GameManager) GetScores(roomID string) []PlayerScore {
+	room, err := gm.roomManager.GetRoom(roomID)
+	if err != nil {
+		return nil
+	}
+
+	room.Mutex.RLock()
+	defer room.Mutex.RUnlock()
+
+	scores := make([]PlayerScore, 0, len(room.Players))
+	for _, player := range room.Players {
+		scores = append(scores, PlayerScore{
+			UserID: player.UserID,
+			Pseudo: player.Pseudo,
+			Score:  player.Score,
 		})
-	}
-}
-
-// calculateRoundScores calcule les points de la manche
-func (gm *GameManager) calculateRoundScores(game *Game) {
-	var correctAnswers []*Answer
-	for _, answer := range game.Answers {
-		if answer.Correct {
-			correctAnswers = append(correctAnswers, answer)
-		}
-	}
-
-	// Trier par timestamp
-	for i := 0; i < len(correctAnswers)-1; i++ {
-		for j := i + 1; j < len(correctAnswers); j++ {
-			if correctAnswers[i].Timestamp.After(correctAnswers[j].Timestamp) {
-				correctAnswers[i], correctAnswers[j] = correctAnswers[j], correctAnswers[i]
-			}
-		}
-	}
-
-	// Attribuer les points
-	for rank, answer := range correctAnswers {
-		var points int
-		switch rank {
-		case 0:
-			points = PointsFirst
-		case 1:
-			points = PointsSecond
-		case 2:
-			points = PointsThird
-		default:
-			points = PointsOther
-		}
-
-		answer.Points = points
-		game.Scores[answer.UserID] += points
-		game.RoundScores[answer.UserID] = append(game.RoundScores[answer.UserID], points)
-	}
-
-	// 0 point pour ceux qui n'ont pas trouvé
-	for userID := range game.Scores {
-		if _, exists := game.Answers[userID]; !exists {
-			game.RoundScores[userID] = append(game.RoundScores[userID], 0)
-		} else if !game.Answers[userID].Correct {
-			game.RoundScores[userID] = append(game.RoundScores[userID], 0)
-		}
-	}
-}
-
-// endGame termine la partie
-func (gm *GameManager) endGame(game *Game) {
-	game.Mutex.Lock()
-	game.Status = "finished"
-	
-	roomCode := game.RoomCode
-	scores := make(map[int64]int)
-	for k, v := range game.Scores {
-		scores[k] = v
-	}
-	roundScores := make(map[int64][]int)
-	for k, v := range game.RoundScores {
-		roundScores[k] = v
-	}
-	game.Mutex.Unlock()
-
-	// Construire le classement final
-	rankings := gm.buildRankings(scores)
-
-	// Notifier les joueurs
-	gm.hub.Broadcast(roomCode, &models.WSMessage{
-		Type: models.WSTypeBTGameEnd,
-		Payload: map[string]interface{}{
-			"rankings":     rankings,
-			"scores":       scores,
-			"round_scores": roundScores,
-		},
-	})
-
-	// Mettre à jour la salle
-	gm.rooms.EndGame(roomCode)
-
-	// Sauvegarder les scores
-	service := rooms.NewService()
-	room, _ := gm.rooms.GetRoom(roomCode)
-	service.SaveGameScores(room, roundScores)
-
-	// Supprimer la partie de la mémoire
-	gm.mutex.Lock()
-	delete(gm.games, roomCode)
-	gm.mutex.Unlock()
-
-	log.Printf("🏆 Blind Test %s terminé", roomCode)
-}
-
-// buildRankings construit le classement final
-func (gm *GameManager) buildRankings(scores map[int64]int) []map[string]interface{} {
-	type entry struct {
-		UserID int64
-		Score  int
-	}
-
-	entries := make([]entry, 0, len(scores))
-	for userID, score := range scores {
-		entries = append(entries, entry{UserID: userID, Score: score})
 	}
 
 	// Trier par score décroissant
-	for i := 0; i < len(entries)-1; i++ {
-		for j := i + 1; j < len(entries); j++ {
-			if entries[i].Score < entries[j].Score {
-				entries[i], entries[j] = entries[j], entries[i]
+	for i := 0; i < len(scores)-1; i++ {
+		for j := i + 1; j < len(scores); j++ {
+			if scores[j].Score > scores[i].Score {
+				scores[i], scores[j] = scores[j], scores[i]
 			}
 		}
 	}
 
-	rankings := make([]map[string]interface{}, 0)
-	for rank, e := range entries {
-		rankings = append(rankings, map[string]interface{}{
-			"rank":    rank + 1,
-			"user_id": e.UserID,
-			"score":   e.Score,
-		})
+	return scores
+}
+
+// PlayerScore score d'un joueur
+type PlayerScore struct {
+	UserID int64  `json:"user_id"`
+	Pseudo string `json:"pseudo"`
+	Score  int    `json:"score"`
+}
+
+// EndGame termine la partie
+func (gm *GameManager) EndGame(roomID string) *GameResult {
+	state := gm.GetGameState(roomID)
+	if state == nil {
+		return nil
 	}
 
-	return rankings
+	// Mettre à jour le statut de la salle
+	gm.roomManager.UpdateRoomStatus(roomID, models.RoomStatusFinished)
+
+	scores := gm.GetScores(roomID)
+
+	// Supprimer l'état du jeu
+	gm.mutex.Lock()
+	delete(gm.games, roomID)
+	gm.mutex.Unlock()
+
+	log.Printf("[BlindTest] Partie terminée dans la salle %s", roomID)
+
+	return &GameResult{
+		Scores: scores,
+		Winner: scores[0].Pseudo,
+	}
 }
 
-// GetGame retourne une partie en cours
-func (gm *GameManager) GetGame(roomCode string) *Game {
-	gm.mutex.RLock()
-	defer gm.mutex.RUnlock()
-	return gm.games[roomCode]
+// GameResult résultat final de la partie
+type GameResult struct {
+	Scores []PlayerScore `json:"scores"`
+	Winner string        `json:"winner"`
 }
 
-// isCorrectAnswer vérifie si une réponse est correcte
-func isCorrectAnswer(answer, trackName, artistName string) bool {
+// IsGameOver vérifie si le jeu est terminé
+func (gm *GameManager) IsGameOver(roomID string) bool {
+	state := gm.GetGameState(roomID)
+	if state == nil {
+		return true
+	}
+	state.Mutex.RLock()
+	defer state.Mutex.RUnlock()
+	return state.CurrentRound >= state.TotalRounds
+}
+
+// ============================================================================
+// FONCTIONS UTILITAIRES
+// ============================================================================
+
+// checkAnswer vérifie si une réponse est correcte
+func checkAnswer(answer, trackName, artistName string) bool {
 	answer = normalizeString(answer)
 	trackName = normalizeString(trackName)
+	artistName = normalizeString(artistName)
 
-	// Vérifier le titre exact ou partiel
-	if strings.Contains(trackName, answer) || strings.Contains(answer, trackName) {
+	// Vérifier si la réponse contient le titre ou l'artiste
+	if strings.Contains(answer, trackName) || strings.Contains(trackName, answer) {
+		return true
+	}
+	if strings.Contains(answer, artistName) || strings.Contains(artistName, answer) {
 		return true
 	}
 
-	// Vérifier la similarité
-	if similarity(answer, trackName) > 0.8 {
+	// Vérifier la similarité (tolérance aux fautes de frappe)
+	if similarity(answer, trackName) > 0.7 || similarity(answer, artistName) > 0.7 {
 		return true
 	}
 
@@ -408,40 +327,58 @@ func isCorrectAnswer(answer, trackName, artistName string) bool {
 // normalizeString normalise une chaîne pour la comparaison
 func normalizeString(s string) string {
 	s = strings.ToLower(s)
-	
-	result := make([]rune, 0, len(s))
-	for _, r := range s {
-		if unicode.IsLetter(r) || unicode.IsNumber(r) || r == ' ' {
-			result = append(result, r)
-		}
-	}
-	
-	return strings.TrimSpace(string(result))
+	s = strings.TrimSpace(s)
+	// Supprimer les accents courants
+	replacer := strings.NewReplacer(
+		"é", "e", "è", "e", "ê", "e", "ë", "e",
+		"à", "a", "â", "a", "ä", "a",
+		"ô", "o", "ö", "o",
+		"ù", "u", "û", "u", "ü", "u",
+		"î", "i", "ï", "i",
+		"ç", "c",
+	)
+	return replacer.Replace(s)
 }
 
-// similarity calcule la similarité entre deux chaînes (0-1)
+// similarity calcule la similarité entre deux chaînes (Jaro-Winkler simplifié)
 func similarity(s1, s2 string) float64 {
 	if s1 == s2 {
 		return 1.0
 	}
-
-	len1, len2 := len(s1), len(s2)
-	if len1 == 0 || len2 == 0 {
+	if len(s1) == 0 || len(s2) == 0 {
 		return 0.0
 	}
 
-	// Distance de Levenshtein
-	matrix := make([][]int, len1+1)
+	// Algorithme de distance de Levenshtein simplifié
+	maxLen := len(s1)
+	if len(s2) > maxLen {
+		maxLen = len(s2)
+	}
+
+	distance := levenshteinDistance(s1, s2)
+	return 1.0 - float64(distance)/float64(maxLen)
+}
+
+// levenshteinDistance calcule la distance de Levenshtein
+func levenshteinDistance(s1, s2 string) int {
+	if len(s1) == 0 {
+		return len(s2)
+	}
+	if len(s2) == 0 {
+		return len(s1)
+	}
+
+	matrix := make([][]int, len(s1)+1)
 	for i := range matrix {
-		matrix[i] = make([]int, len2+1)
+		matrix[i] = make([]int, len(s2)+1)
 		matrix[i][0] = i
 	}
 	for j := range matrix[0] {
 		matrix[0][j] = j
 	}
 
-	for i := 1; i <= len1; i++ {
-		for j := 1; j <= len2; j++ {
+	for i := 1; i <= len(s1); i++ {
+		for j := 1; j <= len(s2); j++ {
 			cost := 1
 			if s1[i-1] == s2[j-1] {
 				cost = 0
@@ -453,20 +390,117 @@ func similarity(s1, s2 string) float64 {
 		}
 	}
 
-	maxLen := float64(max(len1, len2))
-	return 1.0 - float64(matrix[len1][len2])/maxLen
+	return matrix[len(s1)][len(s2)]
 }
 
-func min(a, b int) int {
-	if a < b {
-		return a
-	}
-	return b
+// calculatePoints calcule les points en fonction du temps restant
+func calculatePoints(timeLeft, totalTime int) int {
+	// Points de base: 100
+	// Bonus temps: jusqu'à 50 points supplémentaires
+	basePoints := 100
+	timeBonus := int(float64(timeLeft) / float64(totalTime) * 50)
+	return basePoints + timeBonus
 }
 
-func max(a, b int) int {
-	if a > b {
-		return a
+// ShuffleTracks mélange les pistes (utilisé pour varier les parties)
+func ShuffleTracks(tracks []*models.SpotifyTrack) {
+	rand.Shuffle(len(tracks), func(i, j int) {
+		tracks[i], tracks[j] = tracks[j], tracks[i]
+	})
+}
+
+// GetManager est un alias pour GetGameManager (compatibilité)
+func GetManager() *GameManager {
+	return GetGameManager()
+}
+
+// Handler gère les requêtes HTTP pour le Blind Test
+type Handler struct {
+	gameManager *GameManager
+	roomManager *rooms.Manager
+}
+
+// NewHandler crée un nouveau handler Blind Test
+func NewHandler() *Handler {
+	return &Handler{
+		gameManager: GetGameManager(),
+		roomManager: rooms.GetManager(),
 	}
-	return b
+}
+
+// GetGameManager retourne le GameManager du handler
+func (h *Handler) GetGameManager() *GameManager {
+	return h.gameManager
+}
+
+// GetManager alias pour GetGameManager (compatibilité)
+func GetManager() *GameManager {
+	return GetGameManager()
+}
+
+// Handler gère les requêtes HTTP pour le Blind Test
+type Handler struct {
+	gameManager *GameManager
+	roomManager *rooms.Manager
+}
+
+// NewHandler crée un nouveau handler Blind Test
+func NewHandler() *Handler {
+	return &Handler{
+		gameManager: GetGameManager(),
+		roomManager: rooms.GetManager(),
+	}
+}
+
+// HandleStart démarre une partie de Blind Test
+func (h *Handler) HandleStart(w http.ResponseWriter, r *http.Request) {
+	roomID := r.URL.Query().Get("room_id")
+	if roomID == "" {
+		http.Error(w, "room_id manquant", http.StatusBadRequest)
+		return
+	}
+
+	genre := r.FormValue("genre")
+	if genre == "" {
+		genre = "Pop"
+	}
+
+	rounds := 10 // Par défaut
+
+	state, err := h.gameManager.StartGame(roomID, genre, rounds)
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(map[string]interface{}{
+		"success": true,
+		"state":   state,
+	})
+}
+
+// HandleAnswer soumet une réponse
+func (h *Handler) HandleAnswer(w http.ResponseWriter, r *http.Request) {
+	roomID := r.URL.Query().Get("room_id")
+	userIDStr := r.URL.Query().Get("user_id")
+	
+	userID, _ := strconv.ParseInt(userIDStr, 10, 64)
+
+	var req struct {
+		Answer string `json:"answer"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		http.Error(w, "Format invalide", http.StatusBadRequest)
+		return
+	}
+
+	result, err := h.gameManager.SubmitAnswer(roomID, userID, req.Answer)
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(result)
 }

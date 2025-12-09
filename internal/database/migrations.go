@@ -50,7 +50,7 @@ func RunMigrations() error {
 					host_id INTEGER NOT NULL,
 					game_type TEXT NOT NULL,
 					status TEXT DEFAULT 'waiting',
-					config TEXT, -- JSON stocké
+					config TEXT,
 					created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
 					FOREIGN KEY (host_id) REFERENCES users(id) ON DELETE CASCADE
 				);
@@ -83,7 +83,7 @@ func RunMigrations() error {
 					user_id INTEGER NOT NULL,
 					game_type TEXT NOT NULL,
 					score INTEGER DEFAULT 0,
-					round_scores TEXT, -- JSON des scores par manche
+					round_scores TEXT,
 					created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
 					FOREIGN KEY (room_id) REFERENCES rooms(id) ON DELETE CASCADE,
 					FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
@@ -101,7 +101,6 @@ func RunMigrations() error {
 					is_default BOOLEAN DEFAULT 0,
 					created_at DATETIME DEFAULT CURRENT_TIMESTAMP
 				);
-				-- Insérer les catégories par défaut
 				INSERT OR IGNORE INTO petitbac_categories (name, is_default) VALUES 
 					('artiste', 1),
 					('album', 1),
@@ -125,15 +124,15 @@ func RunMigrations() error {
 	}
 
 	for _, m := range migrations {
-		log.Printf("📦 Exécution migration: %s", m.name)
+		log.Printf("[DB] Exécution migration: %s", m.name)
 		_, err := db.Exec(m.sql)
 		if err != nil {
-			log.Printf("❌ Erreur migration %s: %v", m.name, err)
+			log.Printf("[DB] Erreur migration %s: %v", m.name, err)
 			return err
 		}
 	}
 
-	log.Println("✅ Toutes les migrations exécutées avec succès")
+	log.Println("[DB] Toutes les migrations exécutées avec succès")
 	return nil
 }
 

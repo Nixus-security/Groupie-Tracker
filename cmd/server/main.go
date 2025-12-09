@@ -1,293 +1,212 @@
-// Package main est le point d'entrée de l'application
+// Package main - Point d'entrée du serveur Groupie-Tracker
 package main
 
 import (
-	"html/template"
 	"log"
 	"net/http"
 	"os"
-	"path/filepath"
+	"os/signal"
+	"syscall"
 	"time"
 
 	"groupie-tracker/internal/auth"
 	"groupie-tracker/internal/database"
 	"groupie-tracker/internal/games/blindtest"
 	"groupie-tracker/internal/games/petitbac"
-	"groupie-tracker/internal/models"
 	"groupie-tracker/internal/rooms"
 	"groupie-tracker/internal/spotify"
 	"groupie-tracker/internal/websocket"
 )
 
-// templates contient tous les templates chargés
-var templates *template.Template
+// Config configuration du serveur
+type Config struct {
+	Port            string
+	DatabasePath    string
+	TemplateDir     string
+	StaticDir       string
+	SpotifyClientID string
+	SpotifySecret   string
+}
 
 func main() {
-	// Configuration du logger
-	log.SetFlags(log.LstdFlags | log.Lshortfile)
-	log.Println("🚀 Démarrage de Groupie-Tracker...")
+	log.Println("=== Groupie-Tracker Server ===")
+
+	// Configuration (variables d'environnement ou valeurs par défaut)
+	config := Config{
+		Port:            getEnv("PORT", "8080"),
+		DatabasePath:    getEnv("DB_PATH", "./data/groupie.db"),
+		TemplateDir:     getEnv("TEMPLATE_DIR", "./web/templates"),
+		StaticDir:       getEnv("STATIC_DIR", "./web/static"),
+		SpotifyClientID: getEnv("SPOTIFY_CLIENT_ID", ""),
+		SpotifySecret:   getEnv("SPOTIFY_CLIENT_SECRET", ""),
+	}
+
+	// Créer le dossier data si nécessaire
+	if err := os.MkdirAll("./data", 0755); err != nil {
+		log.Printf("[WARN] Impossible de créer le dossier data: %v", err)
+	}
 
 	// Initialiser la base de données
-	dbPath := getEnvOrDefault("DB_PATH", "groupie_tracker.db")
-	if err := database.Init(dbPath); err != nil {
-		log.Fatalf("❌ Erreur initialisation DB: %v", err)
+	if err := database.Init(config.DatabasePath); err != nil {
+		log.Fatalf("[FATAL] Erreur initialisation DB: %v", err)
 	}
 	defer database.Close()
-	log.Println("✅ Base de données initialisée")
+	log.Println("[OK] Base de données initialisée")
 
-	// Charger les templates avec les fonctions personnalisées
-	templatesDir := "web/templates"
-	funcMap := template.FuncMap{
-		"slice": func(s string, start, end int) string {
-			if start >= len(s) {
-				return ""
-			}
-			if end > len(s) {
-				end = len(s)
-			}
-			return s[start:end]
-		},
-		"eq": func(a, b interface{}) bool {
-			return a == b
-		},
-	}
-	
-	var err error
-	templates, err = template.New("").Funcs(funcMap).ParseGlob(filepath.Join(templatesDir, "*.html"))
-	if err != nil {
-		log.Printf("⚠️ Erreur chargement templates: %v", err)
-	} else {
-		log.Println("✅ Templates chargés")
-	}
-
-	// Configuration Spotify (à remplacer par vos identifiants)
-	spotifyClientID := getEnvOrDefault("SPOTIFY_CLIENT_ID", "")
-	spotifyClientSecret := getEnvOrDefault("SPOTIFY_CLIENT_SECRET", "")
-
-	if spotifyClientID != "" && spotifyClientSecret != "" {
+	// Initialiser le client Spotify si les credentials sont fournis
+	if config.SpotifyClientID != "" && config.SpotifySecret != "" {
 		spotifyClient := spotify.NewClient(spotify.Config{
-			ClientID:     spotifyClientID,
-			ClientSecret: spotifyClientSecret,
+			ClientID:     config.SpotifyClientID,
+			ClientSecret: config.SpotifySecret,
 		})
 		if err := spotifyClient.Authenticate(); err != nil {
-			log.Printf("⚠️ Avertissement Spotify: %v", err)
+			log.Printf("[WARN] Erreur auth Spotify: %v", err)
 		} else {
-			log.Println("✅ Client Spotify initialisé")
+			log.Println("[OK] Client Spotify authentifié")
 		}
 	} else {
-		log.Println("⚠️ Variables SPOTIFY_CLIENT_ID et SPOTIFY_CLIENT_SECRET non définies")
-		log.Println("   Le Blind Test ne fonctionnera pas sans les identifiants Spotify")
+		log.Println("[WARN] Credentials Spotify non configurés - Blind Test limité")
 	}
 
 	// Initialiser les managers
-	_ = rooms.GetManager()
-	log.Println("✅ Room Manager initialisé")
+	roomManager := rooms.GetManager()
+	blindtestMgr := blindtest.GetGameManager()
+	petitbacMgr := petitbac.GetGameManager()
+	log.Println("[OK] Managers de jeu initialisés")
 
-	_ = websocket.GetHub()
-	log.Println("✅ WebSocket Hub initialisé")
+	// Utiliser les managers (éviter les erreurs "unused")
+	_ = roomManager
+	_ = blindtestMgr
+	_ = petitbacMgr
 
-	_ = blindtest.GetManager()
-	log.Println("✅ Blind Test Manager initialisé")
+	// Initialiser le hub WebSocket
+	wsHub := websocket.GetHub()
+	log.Println("[OK] Hub WebSocket initialisé")
 
-	_ = petitbac.GetManager()
-	log.Println("✅ Petit Bac Manager initialisé")
+	// Initialiser les handlers
+	authHandler := auth.NewHandler(config.TemplateDir)
+	roomHandler := rooms.NewHandler(config.TemplateDir)
 
 	// Créer le routeur
 	mux := http.NewServeMux()
 
-	// Servir les fichiers statiques
-	fs := http.FileServer(http.Dir("web/static"))
-	mux.Handle("/static/", http.StripPrefix("/static/", fs))
+	// ============================================================================
+	// FICHIERS STATIQUES
+	// ============================================================================
+	fileServer := http.FileServer(http.Dir(config.StaticDir))
+	mux.Handle("/static/", http.StripPrefix("/static/", fileServer))
 
-	// Créer le middleware d'authentification
-	authMiddleware := auth.NewMiddleware()
+	// ============================================================================
+	// PAGES HTML
+	// ============================================================================
 
-	// Routes d'authentification (utilisent leur propre méthode RegisterRoutes)
-	authHandler := auth.NewHandler(templatesDir)
-	authHandler.RegisterRoutes(mux, authMiddleware)
+	// Page d'accueil
+	mux.HandleFunc("/", func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != "/" {
+			http.NotFound(w, r)
+			return
+		}
+		http.Redirect(w, r, "/lobby", http.StatusSeeOther)
+	})
 
-	// Routes des salles (utilisent leur propre méthode RegisterRoutes)
-	roomHandler := rooms.NewHandler(templatesDir)
-	roomHandler.RegisterRoutes(mux, authMiddleware)
+	// Authentification
+	mux.HandleFunc("/login", authHandler.HandleLogin)
+	mux.HandleFunc("/register", authHandler.HandleRegister)
+	mux.HandleFunc("/logout", authHandler.HandleLogout)
 
-	// Routes Petit Bac catégories (CRUD)
-	petitbacHandler := petitbac.NewHandler()
-	mux.Handle("/api/petitbac/categories", authMiddleware.RequireAuthAPI(http.HandlerFunc(petitbacHandler.CategoriesAPI)))
-	mux.Handle("/api/petitbac/categories/", authMiddleware.RequireAuthAPI(http.HandlerFunc(petitbacHandler.CategoryAPI)))
+	// Lobby et salles
+	mux.HandleFunc("/lobby", roomHandler.HandleLobby)
+	mux.HandleFunc("/room/", roomHandler.HandleRoom)
 
-	// WebSocket avec injection des handlers de jeu
-	wsHandler := websocket.NewHandler()
-	
-	// Injecter le handler Blind Test
-	btManager := blindtest.GetManager()
-	wsHandler.SetBlindTestHandler(func(client *websocket.Client, msg *models.WSMessage) {
-		if msg.Type == models.WSTypeBTAnswer {
-			if payload, ok := msg.Payload.(map[string]interface{}); ok {
-				if answer, ok := payload["answer"].(string); ok {
-					btManager.SubmitAnswer(client.RoomCode, client.UserID, client.Pseudo, answer)
-				}
+	// ============================================================================
+	// API REST
+	// ============================================================================
+
+	// API Salles
+	mux.HandleFunc("/api/rooms", roomHandler.HandleGetRooms)
+	mux.HandleFunc("/api/rooms/create", roomHandler.HandleCreateRoom)
+	mux.HandleFunc("/api/rooms/join", roomHandler.HandleJoinRoom)
+	mux.HandleFunc("/api/rooms/leave", roomHandler.HandleLeaveRoom)
+	mux.Handle("/api/rooms/", http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		// Router pour /api/rooms/{id}/restart
+		if r.Method == http.MethodPost {
+			path := r.URL.Path
+			if len(path) > 8 && path[len(path)-8:] == "/restart" {
+				roomHandler.HandleRestartRoom(w, r)
+				return
 			}
 		}
-	})
-	
-	// Injecter le handler Petit Bac
-	pbManager := petitbac.GetManager()
-	wsHandler.SetPetitBacHandler(func(client *websocket.Client, msg *models.WSMessage) {
-		switch msg.Type {
-		case models.WSTypePBAnswer:
-			if payload, ok := msg.Payload.(map[string]interface{}); ok {
-				if answersRaw, ok := payload["answers"].(map[string]interface{}); ok {
-					answers := make(map[string]string)
-					for k, v := range answersRaw {
-						if s, ok := v.(string); ok {
-							answers[k] = s
-						}
-					}
-					pbManager.SubmitAnswers(client.RoomCode, client.UserID, answers)
-				}
-			}
-		case models.WSTypePBVote:
-			if payload, ok := msg.Payload.(map[string]interface{}); ok {
-				targetID, _ := payload["target_user_id"].(float64)
-				category, _ := payload["category"].(string)
-				isValid, _ := payload["is_valid"].(bool)
-				pbManager.SubmitVote(client.RoomCode, client.UserID, int64(targetID), category, isValid)
-			}
-		case models.WSTypePBStopRound:
-			pbManager.StopRound(client.RoomCode, client.UserID)
-		}
-	})
-	
-	// Route WebSocket avec authentification
-	mux.Handle("/ws", authMiddleware.RequireAuthAPI(http.HandlerFunc(wsHandler.HandleWebSocket)))
+		http.NotFound(w, r)
+	}))
 
-	// Page d'accueil (avec authentification optionnelle)
-	mux.Handle("/", authMiddleware.OptionalAuth(http.HandlerFunc(handleHome)))
+	// ============================================================================
+	// WEBSOCKET
+	// ============================================================================
+	mux.HandleFunc("/ws/room/", wsHub.HandleConnection)
 
-	// Configuration du serveur
-	port := getEnvOrDefault("PORT", "8080")
+	// ============================================================================
+	// MIDDLEWARE & SERVEUR
+	// ============================================================================
+
+	// Wrapper avec middlewares
+	handler := loggingMiddleware(securityHeadersMiddleware(mux))
+
 	server := &http.Server{
-		Addr:         ":" + port,
-		Handler:      mux,
+		Addr:         ":" + config.Port,
+		Handler:      handler,
 		ReadTimeout:  15 * time.Second,
 		WriteTimeout: 15 * time.Second,
 		IdleTimeout:  60 * time.Second,
 	}
 
-	log.Printf("🎮 Serveur démarré sur http://localhost:%s", port)
-	log.Println("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
-	log.Println("Endpoints disponibles:")
-	log.Println("  GET  /              - Page d'accueil")
-	log.Println("  GET  /register      - Inscription")
-	log.Println("  GET  /login         - Connexion")
-	log.Println("  GET  /rooms         - Liste des salles")
-	log.Println("  GET  /room/create   - Créer une salle")
-	log.Println("  GET  /room/join     - Rejoindre une salle")
-	log.Println("  GET  /room/{code}   - Salle de jeu")
-	log.Println("  WS   /ws?room={code}- WebSocket")
-	log.Println("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
-
-	if err := server.ListenAndServe(); err != nil {
-		log.Fatalf("❌ Erreur serveur: %v", err)
-	}
-}
-
-// handleHome gère la page d'accueil
-func handleHome(w http.ResponseWriter, r *http.Request) {
-	if r.URL.Path != "/" {
-		http.NotFound(w, r)
-		return
-	}
-
-	// Vérifier si l'utilisateur est connecté
-	user := auth.GetUserFromContext(r.Context())
-	
-	data := map[string]interface{}{
-		"Title": "Accueil",
-		"User":  user,
-	}
-
-	w.Header().Set("Content-Type", "text/html; charset=utf-8")
-	
-	if templates != nil {
-		if err := templates.ExecuteTemplate(w, "index.html", data); err != nil {
-			log.Printf("❌ Erreur template index: %v", err)
-			// Fallback HTML simple
-			renderFallbackHome(w, user)
+	// Démarrage du serveur en goroutine
+	go func() {
+		log.Printf("[SERVER] Démarrage sur http://localhost:%s", config.Port)
+		if err := server.ListenAndServe(); err != nil && err != http.ErrServerClosed {
+			log.Fatalf("[FATAL] Erreur serveur: %v", err)
 		}
-	} else {
-		renderFallbackHome(w, user)
-	}
+	}()
+
+	// Gestion du shutdown gracieux
+	quit := make(chan os.Signal, 1)
+	signal.Notify(quit, syscall.SIGINT, syscall.SIGTERM)
+	<-quit
+
+	log.Println("[SERVER] Arrêt en cours...")
+	database.Close()
+	log.Println("[SERVER] Arrêté proprement")
 }
 
-// renderFallbackHome affiche une page d'accueil simple si les templates ne sont pas chargés
-func renderFallbackHome(w http.ResponseWriter, user *models.User) {
-	html := `<!DOCTYPE html>
-<html lang="fr">
-<head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Groupie-Tracker</title>
-    <link rel="stylesheet" href="/static/css/style.css">
-</head>
-<body>
-    <div class="container">
-        <header class="text-center" style="padding: 64px 0;">
-            <h1>🎵 Groupie-Tracker</h1>
-            <p class="text-muted">Plateforme de jeux musicaux multijoueur</p>
-        </header>
-        
-        <main>
-            <div class="d-grid gap-lg" style="grid-template-columns: repeat(auto-fit, minmax(300px, 1fr));">
-                <div class="card">
-                    <div class="game-icon">🎧</div>
-                    <h2>Blind Test</h2>
-                    <p class="text-muted">Devinez le titre de la chanson le plus vite possible !</p>
-                </div>
-                
-                <div class="card">
-                    <div class="game-icon">🔤</div>
-                    <h2>Petit Bac Musical</h2>
-                    <p class="text-muted">Trouvez des réponses musicales pour chaque lettre !</p>
-                </div>
-            </div>
-            
-            <div class="text-center mt-lg">`
+// ============================================================================
+// MIDDLEWARES
+// ============================================================================
 
-	if user != nil {
-		html += `
-                <p>Bienvenue, <strong>` + user.Pseudo + `</strong> !</p>
-                <div class="d-flex gap-md justify-center" style="flex-wrap: wrap;">
-                    <a href="/rooms" class="btn btn-primary">Voir les salles</a>
-                    <a href="/room/create" class="btn btn-success">Créer une salle</a>
-                    <a href="/room/join" class="btn btn-secondary">Rejoindre</a>
-                    <a href="/logout" class="btn btn-danger">Déconnexion</a>
-                </div>`
-	} else {
-		html += `
-                <p class="text-muted">Connectez-vous pour jouer !</p>
-                <div class="d-flex gap-md justify-center">
-                    <a href="/login" class="btn btn-primary">Connexion</a>
-                    <a href="/register" class="btn btn-secondary">Inscription</a>
-                </div>`
-	}
-
-	html += `
-            </div>
-        </main>
-        
-        <footer class="text-center mt-lg text-muted">
-            <p>© 2024 Groupie-Tracker - Projet Go</p>
-        </footer>
-    </div>
-</body>
-</html>`
-
-	w.Write([]byte(html))
+// loggingMiddleware log les requêtes HTTP
+func loggingMiddleware(next http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		start := time.Now()
+		next.ServeHTTP(w, r)
+		log.Printf("[HTTP] %s %s %s", r.Method, r.URL.Path, time.Since(start))
+	})
 }
 
-// getEnvOrDefault retourne la valeur de la variable d'environnement ou une valeur par défaut
-func getEnvOrDefault(key, defaultValue string) string {
+// securityHeadersMiddleware ajoute les headers de sécurité
+func securityHeadersMiddleware(next http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("X-Content-Type-Options", "nosniff")
+		w.Header().Set("X-Frame-Options", "DENY")
+		w.Header().Set("X-XSS-Protection", "1; mode=block")
+		w.Header().Set("Referrer-Policy", "strict-origin-when-cross-origin")
+		next.ServeHTTP(w, r)
+	})
+}
+
+// ============================================================================
+// UTILITAIRES
+// ============================================================================
+
+// getEnv récupère une variable d'environnement ou retourne la valeur par défaut
+func getEnv(key, defaultValue string) string {
 	if value := os.Getenv(key); value != "" {
 		return value
 	}

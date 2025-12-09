@@ -14,13 +14,13 @@ import (
 )
 
 var (
-	ErrInvalidPseudo       = errors.New("pseudo invalide: doit contenir au moins une majuscule")
-	ErrPseudoTaken         = errors.New("ce pseudo est déjà utilisé")
-	ErrEmailTaken          = errors.New("cet email est déjà utilisé")
-	ErrInvalidEmail        = errors.New("format d'email invalide")
-	ErrWeakPassword        = errors.New("mot de passe trop faible (min 12 car., maj, min, chiffre, spécial)")
-	ErrUserNotFound        = errors.New("utilisateur non trouvé")
-	ErrInvalidCredentials  = errors.New("identifiants invalides")
+	ErrInvalidPseudo      = errors.New("pseudo invalide: doit contenir au moins une majuscule")
+	ErrPseudoTaken        = errors.New("ce pseudo est déjà utilisé")
+	ErrEmailTaken         = errors.New("cet email est déjà utilisé")
+	ErrInvalidEmail       = errors.New("format d'email invalide")
+	ErrWeakPassword       = errors.New("mot de passe trop faible (min 12 car., maj, min, chiffre, spécial)")
+	ErrUserNotFound       = errors.New("utilisateur non trouvé")
+	ErrInvalidCredentials = errors.New("identifiants invalides")
 )
 
 // Service gère la logique d'authentification

@@ -1,190 +1,345 @@
+{{define "room"}}
 <!DOCTYPE html>
 <html lang="fr">
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>{{.Room.Name}} - Groupie Tracker</title>
-    <link rel="stylesheet" href="/static/style.css">
+    <link rel="stylesheet" href="/static/css/style.css">
 </head>
 <body>
-    <!-- Navigation -->
-    <nav class="navbar">
-        <a href="/" class="navbar-brand">
-            <span class="icon">🎵</span>
-            <span>Groupie Tracker</span>
-        </a>
-        
-        <ul class="navbar-nav">
-            <li><a href="/">Accueil</a></li>
-            <li><a href="/rooms">Salles</a></li>
-        </ul>
-
-        <div class="navbar-user">
-            {{if .User}}
-            <div class="user-info">
-                <div class="avatar">{{slice .User.Pseudo 0 1}}</div>
-                <span>{{.User.Pseudo}}</span>
-            </div>
-            {{end}}
-        </div>
-    </nav>
-
-    <!-- Contenu principal -->
-    <div class="room-page">
-        <!-- Zone principale -->
-        <div class="room-main">
-            <!-- En-tête de la salle -->
-            <div class="room-header">
-                <div class="room-title">
-                    <h1>{{.Room.Name}}</h1>
-                    <span class="badge badge-{{if eq .Room.GameType "blindtest"}}primary{{else}}secondary{{end}}">
-                        {{if eq .Room.GameType "blindtest"}}🎧 Blind Test{{else}}🔤 Petit Bac{{end}}
-                    </span>
-                </div>
-                <div class="room-code-display" onclick="copyRoomCode('{{.Room.Code}}')" title="Cliquez pour copier">
-                    <code>{{.Room.Code}}</code>
-                    <span class="copy-icon">📋</span>
-                </div>
-            </div>
-
-            <!-- Zone de jeu (cachée au début) -->
-            <div id="gameArea" class="d-none">
-                {{if eq .Room.GameType "blindtest"}}
-                <!-- Blind Test -->
-                <div class="blindtest-container" id="blindtestContainer">
-                    <!-- Sera rempli dynamiquement -->
-                </div>
-                {{else}}
-                <!-- Petit Bac -->
-                <div class="petitbac-container" id="petitbacContainer">
-                    <!-- Sera rempli dynamiquement -->
-                </div>
-                {{end}}
-            </div>
-
-            <!-- Zone d'attente (visible au début) -->
-            <div id="lobbyArea">
-                <div class="card">
-                    <div class="text-center p-lg">
-                        <div style="font-size: 4rem; margin-bottom: 16px;">
-                            {{if eq .Room.GameType "blindtest"}}🎧{{else}}🔤{{end}}
+    {{template "navbar" .}}
+    
+    <main class="main-content">
+        <div class="container">
+            <!-- Header de la salle -->
+            <header class="room-header">
+                <div class="room-header-info">
+                    <h1 class="room-title">{{.Room.Name}}</h1>
+                    <div class="room-meta">
+                        <!-- Code de la salle -->
+                        <div class="room-code-display" title="Code pour rejoindre">
+                            <span class="icon icon-key icon-sm"></span>
+                            <span class="room-code-text">{{.Room.Code}}</span>
+                            <button class="btn-icon" onclick="copyCode('{{.Room.Code}}')" title="Copier le code">
+                                <span class="icon icon-copy icon-sm"></span>
+                            </button>
                         </div>
-                        <h2>En attente des joueurs...</h2>
-                        <p class="text-muted mt-md">
-                            Partagez le code <strong>{{.Room.Code}}</strong> avec vos amis pour qu'ils rejoignent la partie.
-                        </p>
-                        <p class="text-muted">
-                            Minimum 2 joueurs requis pour démarrer.
-                        </p>
+                        
+                        <!-- Type de jeu -->
+                        <span class="game-type-badge {{.Room.GameType}}">
+                            {{if eq .Room.GameType "blindtest"}}
+                            <span class="icon icon-music icon-sm"></span>
+                            Blind Test
+                            {{else}}
+                            <span class="icon icon-text icon-sm"></span>
+                            Petit Bac
+                            {{end}}
+                        </span>
+                        
+                        <!-- Statut de la salle -->
+                        {{$statusInfo := .Room.Status.GetStatusInfo}}
+                        <span class="room-status {{$statusInfo.Color}}">
+                            {{$statusInfo.Label}}
+                        </span>
                     </div>
                 </div>
-
-                <!-- Actions du lobby -->
-                <div class="room-actions">
-                    <button class="btn btn-secondary" onclick="leaveRoom()">
-                        <span>🚪</span>
-                        <span>Quitter</span>
-                    </button>
-                    <button class="btn btn-success btn-lg" id="readyBtn" onclick="toggleReady()" style="flex: 1;">
-                        <span>✓</span>
-                        <span>Je suis prêt !</span>
-                    </button>
-                    {{if .IsHost}}
-                    <button class="btn btn-primary btn-lg" id="startBtn" onclick="startGame()" disabled style="flex: 1;">
-                        <span>🎮</span>
-                        <span>Lancer la partie</span>
+                
+                {{if .IsHost}}
+                <div class="room-header-actions">
+                    {{if eq .Room.Status "waiting"}}
+                    <button class="btn btn-primary btn-lg" id="start-game-btn" onclick="startGame()">
+                        <span class="icon icon-play"></span>
+                        Lancer la partie
                     </button>
                     {{end}}
                 </div>
-            </div>
+                {{end}}
+            </header>
 
-            <!-- Résultats finaux (cachés) -->
-            <div id="resultsArea" class="d-none">
-                <div class="card">
-                    <div class="text-center">
-                        <h2>🏆 Partie terminée !</h2>
-                        <div id="podiumContainer"></div>
-                        <div class="mt-lg">
-                            <a href="/rooms" class="btn btn-primary btn-lg">
-                                Retour aux salles
-                            </a>
+            <!-- Contenu principal selon le statut -->
+            <div class="room-content">
+                {{if eq .Room.Status "waiting"}}
+                <!-- STATUT: EN ATTENTE -->
+                <section class="waiting-room">
+                    <div class="waiting-info">
+                        <h2>
+                            <span class="icon icon-hourglass"></span>
+                            En attente des joueurs
+                        </h2>
+                        <p>Partage le code <strong>{{.Room.Code}}</strong> à tes amis pour qu'ils rejoignent la partie.</p>
+                        
+                        <!-- Info mode solo -->
+                        {{if eq (len .Room.Players) 1}}
+                        <div class="solo-mode-badge">
+                            <span class="icon icon-user"></span>
+                            Mode Solo disponible
                         </div>
+                        <p class="solo-hint">Tu peux lancer la partie seul pour t'entraîner !</p>
+                        {{end}}
                     </div>
-                </div>
-            </div>
-        </div>
-
-        <!-- Panneau latéral - Joueurs -->
-        <div class="players-panel">
-            <h2>
-                <span>👥</span>
-                <span>Joueurs</span>
-                <span class="badge badge-primary" id="playerCount">{{.Room.PlayerCount}}/8</span>
-            </h2>
-            
-            <div class="players-list" id="playersList">
-                {{range .Room.Players}}
-                <div class="player-item {{if eq .ID $.User.ID}}is-self{{end}} {{if .IsHost}}is-host{{end}}" data-player-id="{{.ID}}">
-                    <div class="player-avatar">{{slice .Pseudo 0 1}}</div>
-                    <div class="player-info">
-                        <div class="player-name">
-                            {{.Pseudo}}
-                            {{if .IsHost}}<span class="crown" title="Hôte">👑</span>{{end}}
-                            {{if eq .ID $.User.ID}}<span class="text-muted">(vous)</span>{{end}}
-                        </div>
-                        <div class="player-status">
-                            {{if .IsReady}}
-                            <span class="text-success">✓ Prêt</span>
-                            {{else}}
-                            <span class="text-muted">En attente...</span>
+                    
+                    <!-- Liste des joueurs -->
+                    <div class="players-list">
+                        <h3>
+                            <span class="icon icon-users"></span>
+                            Joueurs ({{len .Room.Players}}/10)
+                        </h3>
+                        <ul class="players-grid">
+                            {{range $id, $player := .Room.Players}}
+                            <li class="player-item {{if $player.IsReady}}ready{{end}} {{if $player.IsHost}}host{{end}}">
+                                <span class="player-avatar">
+                                    {{if $player.IsHost}}
+                                    <span class="icon icon-crown icon-sm" title="Hôte"></span>
+                                    {{else}}
+                                    <span class="icon icon-user icon-sm"></span>
+                                    {{end}}
+                                </span>
+                                <span class="player-name">{{$player.Pseudo}}</span>
+                                <span class="player-status">
+                                    {{if $player.IsReady}}
+                                    <span class="icon icon-check icon-sm text-success"></span>
+                                    Prêt
+                                    {{else}}
+                                    <span class="icon icon-hourglass icon-sm text-warning"></span>
+                                    En attente
+                                    {{end}}
+                                </span>
+                            </li>
                             {{end}}
+                        </ul>
+                    </div>
+                    
+                    <!-- Bouton prêt pour les non-hôtes -->
+                    {{if not .IsHost}}
+                    <div class="ready-section">
+                        <button class="btn btn-success btn-lg" id="ready-btn" onclick="toggleReady()">
+                            <span class="icon icon-check"></span>
+                            <span id="ready-text">Je suis prêt</span>
+                        </button>
+                    </div>
+                    {{end}}
+                </section>
+
+                {{else if eq .Room.Status "playing"}}
+                <!-- STATUT: EN COURS -->
+                <section class="game-playing">
+                    <div class="game-status-banner playing">
+                        <span class="icon icon-play icon-lg"></span>
+                        <h2>Partie en cours</h2>
+                    </div>
+                    
+                    <!-- Zone de jeu (chargée dynamiquement) -->
+                    <div id="game-area">
+                        <!-- Le contenu du jeu sera injecté ici via WebSocket -->
+                        <div class="game-loading">
+                            <span class="icon icon-spinner icon-xl"></span>
+                            <p>Chargement de la partie...</p>
                         </div>
                     </div>
-                    <span class="player-ready-icon {{if .IsReady}}ready{{else}}not-ready{{end}}">
-                        {{if .IsReady}}✅{{else}}⏳{{end}}
-                    </span>
-                </div>
+                </section>
+
+                {{else if eq .Room.Status "finished"}}
+                <!-- STATUT: TERMINÉE -->
+                <section class="game-finished">
+                    <div class="game-status-banner finished">
+                        <span class="icon icon-trophy icon-lg"></span>
+                        <h2>Partie terminée</h2>
+                    </div>
+                    
+                    <!-- Scores finaux -->
+                    <div class="final-scores" id="final-scores">
+                        <h3>Classement final</h3>
+                        <!-- Les scores seront affichés ici -->
+                    </div>
+                    
+                    <div class="game-actions">
+                        {{if .IsHost}}
+                        <button class="btn btn-primary btn-lg" onclick="restartGame()">
+                            <span class="icon icon-refresh"></span>
+                            Rejouer
+                        </button>
+                        {{end}}
+                        <a href="/lobby" class="btn btn-ghost btn-lg">
+                            <span class="icon icon-arrow-left"></span>
+                            Retour au lobby
+                        </a>
+                    </div>
+                </section>
                 {{end}}
             </div>
-
-            <!-- Scoreboard (visible pendant le jeu) -->
-            <div class="scoreboard d-none" id="scoreboard">
-                <h2>
-                    <span>🏆</span>
-                    <span>Scores</span>
-                </h2>
-                <div class="scoreboard-list" id="scoresList">
-                    <!-- Rempli dynamiquement -->
-                </div>
-            </div>
         </div>
-    </div>
+    </main>
 
-    <!-- Container pour les toasts -->
-    <div class="toast-container" id="toastContainer"></div>
-
-    <!-- Variables pour le JavaScript -->
     <script>
-        const ROOM_CODE = "{{.Room.Code}}";
-        const GAME_TYPE = "{{.Room.GameType}}";
-        const USER_ID = "{{.User.ID}}";
-        const USER_PSEUDO = "{{.User.Pseudo}}";
-        const IS_HOST = "{{if .IsHost}}" true "{{else}}" false "{{end}}";
-    </script>
+        const roomId = "{{.Room.ID}}";
+        const userId = "{{.User.ID}}";
+        const isHost = "{{.IsHost}}";
+        let ws = null;
+        let isReady = false;
 
-    <!-- Scripts -->
-    <script src="/static/websocket.js"></script>
-    {{if eq .Room.GameType "blindtest"}}
-    <script src="/static/blindtest.js"></script>
-    {{else}}
-    <script src="/static/petitbac.js"></script>
-    {{end}}
-    
-    <script>
-        // Initialisation au chargement
-        document.addEventListener('DOMContentLoaded', function() {
-            console.log('🎮 Room loaded:', ROOM_CODE, 'Game:', GAME_TYPE, 'User:', USER_ID);
-        });
+        // Connexion WebSocket
+        function connectWebSocket() {
+            const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
+            ws = new WebSocket(`${protocol}//${window.location.host}/ws/room/${roomId}`);
+            
+            ws.onopen = function() {
+                console.log('[WS] Connecté à la salle');
+                ws.send(JSON.stringify({type: 'join_room', payload: {room_id: roomId}}));
+            };
+            
+            ws.onmessage = function(event) {
+                const msg = JSON.parse(event.data);
+                handleMessage(msg);
+            };
+            
+            ws.onclose = function() {
+                console.log('[WS] Déconnecté, reconnexion dans 3s...');
+                setTimeout(connectWebSocket, 3000);
+            };
+            
+            ws.onerror = function(error) {
+                console.error('[WS] Erreur:', error);
+            };
+        }
+        
+        // Gestion des messages WebSocket
+        function handleMessage(msg) {
+            console.log('[WS] Message:', msg.type, msg);
+            
+            switch (msg.type) {
+                case 'room_update':
+                    updateRoom(msg.payload);
+                    break;
+                case 'player_joined':
+                    addPlayer(msg.payload);
+                    break;
+                case 'player_left':
+                    removePlayer(msg.payload);
+                    break;
+                case 'player_ready':
+                    updatePlayerReady(msg.payload);
+                    break;
+                case 'start_game':
+                    onGameStart(msg.payload);
+                    break;
+                case 'bt_new_round':
+                case 'pb_new_round':
+                    onNewRound(msg.payload);
+                    break;
+                case 'bt_result':
+                case 'pb_vote_result':
+                    onRoundResult(msg.payload);
+                    break;
+                case 'bt_game_end':
+                case 'pb_game_end':
+                    onGameEnd(msg.payload);
+                    break;
+                case 'error':
+                    alert(msg.error);
+                    break;
+            }
+        }
+        
+        // Copier le code
+        function copyCode(code) {
+            navigator.clipboard.writeText(code).then(() => {
+                // Feedback visuel
+                const btn = event.target.closest('button');
+                btn.classList.add('copied');
+                setTimeout(() => btn.classList.remove('copied'), 2000);
+            });
+        }
+        
+        // Toggle prêt
+        function toggleReady() {
+            isReady = !isReady;
+            ws.send(JSON.stringify({
+                type: 'player_ready',
+                payload: {ready: isReady}
+            }));
+            
+            const btn = document.getElementById('ready-btn');
+            const text = document.getElementById('ready-text');
+            
+            if (isReady) {
+                btn.classList.remove('btn-success');
+                btn.classList.add('btn-warning');
+                text.textContent = 'Annuler';
+            } else {
+                btn.classList.remove('btn-warning');
+                btn.classList.add('btn-success');
+                text.textContent = 'Je suis prêt';
+            }
+        }
+        
+        // Lancer la partie (hôte uniquement)
+        function startGame() {
+            if (!isHost) return;
+            ws.send(JSON.stringify({type: 'start_game'}));
+        }
+        
+        // Mise à jour de la salle
+        function updateRoom(data) {
+            // Rafraîchir la page si le statut change
+            if (data.status && data.status !== "{{.Room.Status}}") {
+                window.location.reload();
+            }
+        }
+        
+        // Ajouter un joueur
+        function addPlayer(data) {
+            // Rafraîchir la liste des joueurs
+            window.location.reload();
+        }
+        
+        // Retirer un joueur
+        function removePlayer(data) {
+            window.location.reload();
+        }
+        
+        // Mise à jour statut prêt
+        function updatePlayerReady(data) {
+            const playerItem = document.querySelector(`[data-user-id="${data.user_id}"]`);
+            if (playerItem) {
+                playerItem.classList.toggle('ready', data.ready);
+            }
+        }
+        
+        // Début de partie
+        function onGameStart(data) {
+            window.location.reload();
+        }
+        
+        // Nouvelle manche
+        function onNewRound(data) {
+            // Géré par le JS spécifique au jeu
+        }
+        
+        // Résultat de manche
+        function onRoundResult(data) {
+            // Géré par le JS spécifique au jeu
+        }
+        
+        // Fin de partie
+        function onGameEnd(data) {
+            window.location.reload();
+        }
+        
+        // Relancer la partie
+        function restartGame() {
+            fetch(`/api/rooms/${roomId}/restart`, {method: 'POST'})
+                .then(res => res.json())
+                .then(data => {
+                    if (data.success) {
+                        window.location.reload();
+                    }
+                });
+        }
+        
+        // Initialisation
+        connectWebSocket();
     </script>
 </body>
 </html>
+{{end}}

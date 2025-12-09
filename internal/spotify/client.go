@@ -8,7 +8,7 @@ import (
 	"fmt"
 	"io"
 	"log"
-	"math/rand"
+	"math/rand/v2"
 	"net/http"
 	"net/url"
 	"strings"
@@ -19,8 +19,8 @@ import (
 )
 
 var (
-	ErrNoToken       = errors.New("pas de token Spotify valide")
-	ErrNoTracks      = errors.New("aucune piste trouvée")
+	ErrNoToken  = errors.New("pas de token Spotify valide")
+	ErrNoTracks = errors.New("aucune piste trouvée")
 )
 
 // Config configuration du client Spotify
@@ -31,14 +31,14 @@ type Config struct {
 
 // Client gère les appels à l'API Spotify
 type Client struct {
-	config       Config
-	httpClient   *http.Client
-	accessToken  string
-	tokenExpiry  time.Time
-	mutex        sync.RWMutex
+	config      Config
+	httpClient  *http.Client
+	accessToken string
+	tokenExpiry time.Time
+	mutex       sync.RWMutex
 }
 
-// Playlists IDs par genre (playlists publiques Spotify)
+// PlaylistsByGenre - Playlists IDs par genre (playlists publiques Spotify)
 var PlaylistsByGenre = map[string][]string{
 	"Pop": {
 		"37i9dQZF1DXcBWIGoYBM5M", // Today's Top Hits
@@ -126,7 +126,7 @@ func (c *Client) Authenticate() error {
 	c.accessToken = result.AccessToken
 	c.tokenExpiry = time.Now().Add(time.Duration(result.ExpiresIn-60) * time.Second)
 
-	log.Println("✅ Token Spotify obtenu, expire dans", result.ExpiresIn, "secondes")
+	log.Println("[Spotify] Token obtenu, expire dans", result.ExpiresIn, "secondes")
 	return nil
 }
 
@@ -246,7 +246,7 @@ func (c *Client) GetRandomTracksForBlindTest(genre string, count int) ([]*models
 	for _, playlistID := range playlists {
 		tracks, err := c.GetPlaylistTracks(playlistID, 50)
 		if err != nil {
-			log.Printf("⚠️ Erreur playlist %s: %v", playlistID, err)
+			log.Printf("[Spotify] Erreur playlist %s: %v", playlistID, err)
 			continue
 		}
 		allTracks = append(allTracks, tracks...)
@@ -256,8 +256,7 @@ func (c *Client) GetRandomTracksForBlindTest(genre string, count int) ([]*models
 		return nil, ErrNoTracks
 	}
 
-	// Mélanger les pistes
-	rand.Seed(time.Now().UnixNano())
+	// Mélanger les pistes (Go 1.21+ : pas besoin de seed, utilise math/rand/v2)
 	rand.Shuffle(len(allTracks), func(i, j int) {
 		allTracks[i], allTracks[j] = allTracks[j], allTracks[i]
 	})

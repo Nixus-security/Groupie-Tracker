@@ -60,18 +60,67 @@ const (
 	RoomStatusFinished RoomStatus = "finished" // Partie terminée
 )
 
+// RoomStatusInfo informations d'affichage pour un statut
+type RoomStatusInfo struct {
+	Label string // Texte à afficher
+	Icon  string // Classe d'icône CSS
+	Color string // Classe de couleur CSS
+}
+
+// GetStatusInfo retourne les informations d'affichage pour un statut
+func (s RoomStatus) GetStatusInfo() RoomStatusInfo {
+	switch s {
+	case RoomStatusWaiting:
+		return RoomStatusInfo{
+			Label: "En attente",
+			Icon:  "icon-hourglass",
+			Color: "status-waiting",
+		}
+	case RoomStatusPlaying:
+		return RoomStatusInfo{
+			Label: "En cours",
+			Icon:  "icon-play",
+			Color: "status-playing",
+		}
+	case RoomStatusFinished:
+		return RoomStatusInfo{
+			Label: "Terminée",
+			Icon:  "icon-check",
+			Color: "status-finished",
+		}
+	default:
+		return RoomStatusInfo{
+			Label: "Inconnu",
+			Icon:  "icon-question",
+			Color: "status-unknown",
+		}
+	}
+}
+
+// String retourne le label du statut
+func (s RoomStatus) String() string {
+	return s.GetStatusInfo().Label
+}
+
 // Room représente une salle de jeu
 type Room struct {
-	ID        string              `json:"id"`
-	Code      string              `json:"code"`      // Code pour rejoindre
-	Name      string              `json:"name"`      // Nom de la salle
-	HostID    int64               `json:"host_id"`   // Créateur de la salle
-	GameType  GameType            `json:"game_type"` // Type de jeu
-	Status    RoomStatus          `json:"status"`
-	Players   map[int64]*Player   `json:"players"` // Joueurs dans la salle
-	Config    GameConfig          `json:"config"`  // Configuration du jeu
-	CreatedAt time.Time           `json:"created_at"`
-	Mutex     sync.RWMutex        `json:"-"` // Pour accès concurrent
+	ID        string            `json:"id"`
+	Code      string            `json:"code"`      // Code pour rejoindre
+	Name      string            `json:"name"`      // Nom de la salle
+	HostID    int64             `json:"host_id"`   // Créateur de la salle
+	GameType  GameType          `json:"game_type"` // Type de jeu
+	Status    RoomStatus        `json:"status"`
+	Players   map[int64]*Player `json:"players"` // Joueurs dans la salle
+	Config    GameConfig        `json:"config"`  // Configuration du jeu
+	CreatedAt time.Time         `json:"created_at"`
+	Mutex     sync.RWMutex      `json:"-"` // Pour accès concurrent
+}
+
+// PlayerCount retourne le nombre de joueurs dans la salle
+func (r *Room) PlayerCount() int {
+	r.Mutex.RLock()
+	defer r.Mutex.RUnlock()
+	return len(r.Players)
 }
 
 // Player représente un joueur dans une salle
@@ -87,13 +136,13 @@ type Player struct {
 // GameConfig configuration générale d'une partie
 type GameConfig struct {
 	// Blind Test
-	Playlist     string `json:"playlist,omitempty"`      // Rock, Rap, Pop
+	Playlist     string `json:"playlist,omitempty"`       // Rock, Rap, Pop
 	TimePerRound int    `json:"time_per_round,omitempty"` // Temps par manche
 
 	// Petit Bac
-	Categories    []string `json:"categories,omitempty"`     // Catégories actives
-	NbRounds      int      `json:"nb_rounds,omitempty"`      // Nombre de manches
-	UsedLetters   []string `json:"used_letters,omitempty"`   // Lettres déjà utilisées
+	Categories  []string `json:"categories,omitempty"`   // Catégories actives
+	NbRounds    int      `json:"nb_rounds,omitempty"`    // Nombre de manches
+	UsedLetters []string `json:"used_letters,omitempty"` // Lettres déjà utilisées
 }
 
 // IsRoomReady vérifie si une salle est prête à démarrer
@@ -101,8 +150,8 @@ func IsRoomReady(r *Room) bool {
 	r.Mutex.RLock()
 	defer r.Mutex.RUnlock()
 
-	// Minimum 2 joueurs
-	if len(r.Players) < 2 {
+	// Minimum 1 joueur (permet de jouer en solo)
+	if len(r.Players) < 1 {
 		return false
 	}
 
@@ -159,34 +208,34 @@ type WSMessageType string
 
 const (
 	// Messages généraux
-	WSTypeError       WSMessageType = "error"
-	WSTypePing        WSMessageType = "ping"
-	WSTypePong        WSMessageType = "pong"
-	
+	WSTypeError WSMessageType = "error"
+	WSTypePing  WSMessageType = "ping"
+	WSTypePong  WSMessageType = "pong"
+
 	// Messages de salle
-	WSTypeJoinRoom    WSMessageType = "join_room"
-	WSTypeLeaveRoom   WSMessageType = "leave_room"
+	WSTypeJoinRoom     WSMessageType = "join_room"
+	WSTypeLeaveRoom    WSMessageType = "leave_room"
 	WSTypePlayerJoined WSMessageType = "player_joined"
-	WSTypePlayerLeft  WSMessageType = "player_left"
-	WSTypePlayerReady WSMessageType = "player_ready"
-	WSTypeRoomUpdate  WSMessageType = "room_update"
-	WSTypeStartGame   WSMessageType = "start_game"
-	
+	WSTypePlayerLeft   WSMessageType = "player_left"
+	WSTypePlayerReady  WSMessageType = "player_ready"
+	WSTypeRoomUpdate   WSMessageType = "room_update"
+	WSTypeStartGame    WSMessageType = "start_game"
+
 	// Messages Blind Test
-	WSTypeBTNewRound    WSMessageType = "bt_new_round"
-	WSTypeBTAnswer      WSMessageType = "bt_answer"
-	WSTypeBTResult      WSMessageType = "bt_result"
-	WSTypeBTScores      WSMessageType = "bt_scores"
-	WSTypeBTGameEnd     WSMessageType = "bt_game_end"
-	
+	WSTypeBTNewRound WSMessageType = "bt_new_round"
+	WSTypeBTAnswer   WSMessageType = "bt_answer"
+	WSTypeBTResult   WSMessageType = "bt_result"
+	WSTypeBTScores   WSMessageType = "bt_scores"
+	WSTypeBTGameEnd  WSMessageType = "bt_game_end"
+
 	// Messages Petit Bac
-	WSTypePBNewRound    WSMessageType = "pb_new_round"
-	WSTypePBAnswer      WSMessageType = "pb_answer"
-	WSTypePBVote        WSMessageType = "pb_vote"
-	WSTypePBVoteResult  WSMessageType = "pb_vote_result"
-	WSTypePBScores      WSMessageType = "pb_scores"
-	WSTypePBGameEnd     WSMessageType = "pb_game_end"
-	WSTypePBStopRound   WSMessageType = "pb_stop_round"
+	WSTypePBNewRound   WSMessageType = "pb_new_round"
+	WSTypePBAnswer     WSMessageType = "pb_answer"
+	WSTypePBVote       WSMessageType = "pb_vote"
+	WSTypePBVoteResult WSMessageType = "pb_vote_result"
+	WSTypePBScores     WSMessageType = "pb_scores"
+	WSTypePBGameEnd    WSMessageType = "pb_game_end"
+	WSTypePBStopRound  WSMessageType = "pb_stop_round"
 )
 
 // WSMessage message WebSocket générique

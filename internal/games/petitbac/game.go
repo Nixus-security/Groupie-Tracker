@@ -2,180 +2,513 @@
 package petitbac
 
 import (
-	"encoding/json"
 	"log"
-	"math/rand"
-	"net/http"
-	"strconv"
+	"math/rand/v2"
 	"strings"
 	"sync"
 	"time"
 
-	"groupie-tracker/internal/database"
 	"groupie-tracker/internal/models"
 	"groupie-tracker/internal/rooms"
-	"groupie-tracker/internal/websocket"
 )
 
-// GameManager gère toutes les parties de Petit Bac en cours
-type GameManager struct {
-	games  map[string]*Game
-	mutex  sync.RWMutex
-	hub    *websocket.Hub
-	rooms  *rooms.Manager
-}
-
-// Game représente une partie de Petit Bac
-type Game struct {
-	RoomCode      string
-	CurrentRound  int
-	TotalRounds   int
-	CurrentLetter string
-	UsedLetters   []string
-	Categories    []string
-	Players       map[int64]*PlayerState
-	Scores        map[int64]int
-	RoundScores   map[int64][]int
-	Status        string
-	RoundStart    time.Time
-	StoppedBy     int64
-	Mutex         sync.RWMutex
-}
-
-// PlayerState état d'un joueur dans la partie
-type PlayerState struct {
-	UserID    int64
-	Pseudo    string
-	Answers   map[string]string
-	Submitted bool
-	Votes     map[string]map[int64]bool
-}
-
-// Points
-const (
-	PointsUniqueValid = 2
-	PointsSharedValid = 1
-	PointsInvalid     = 0
-)
-
-// Lettres disponibles
+// Lettres disponibles pour le Petit Bac (sans les lettres difficiles)
 var AvailableLetters = []string{
 	"A", "B", "C", "D", "E", "F", "G", "H", "I", "J", "K", "L", "M",
-	"N", "O", "P", "Q", "R", "S", "T", "U", "V",
+	"N", "O", "P", "R", "S", "T", "V",
+}
+
+// GameState représente l'état d'une partie de Petit Bac
+type GameState struct {
+	RoomID        string                       `json:"room_id"`
+	CurrentRound  int                          `json:"current_round"`
+	TotalRounds   int                          `json:"total_rounds"`
+	CurrentLetter string                       `json:"current_letter"`
+	UsedLetters   []string                     `json:"used_letters"`
+	Categories    []string                     `json:"categories"`
+	Answers       map[int64]map[string]string  `json:"answers"`     // UserID -> Category -> Answer
+	HasSubmitted  map[int64]bool               `json:"has_submitted"` // UserID -> a soumis
+	Votes         map[int64]map[string][]int64 `json:"votes"`       // UserID -> Category -> VotersIDs
+	RoundStoppedBy int64                       `json:"round_stopped_by"`
+	TimeLeft      int                          `json:"time_left"`
+	Phase         GamePhase                    `json:"phase"`
+	Timer         *time.Timer                  `json:"-"`
+	Mutex         sync.RWMutex                 `json:"-"`
+}
+
+// GamePhase phase de jeu
+type GamePhase string
+
+const (
+	PhaseWaiting  GamePhase = "waiting"
+	PhaseAnswering GamePhase = "answering"
+	PhaseVoting   GamePhase = "voting"
+	PhaseResults  GamePhase = "results"
+)
+
+// Constantes de temps
+const (
+	AnswerTime = 60  // Temps pour répondre en secondes
+	VoteTime   = 30  // Temps pour voter en secondes
+)
+
+// GameManager gère toutes les parties de Petit Bac actives
+type GameManager struct {
+	games       map[string]*GameState
+	mutex       sync.RWMutex
+	roomManager *rooms.Manager
 }
 
 var (
-	managerInstance *GameManager
-	managerOnce     sync.Once
+	gameManagerInstance *GameManager
+	gameManagerOnce     sync.Once
 )
 
-// GetManager retourne l'instance singleton du GameManager
-func GetManager() *GameManager {
-	managerOnce.Do(func() {
-		managerInstance = &GameManager{
-			games: make(map[string]*Game),
-			hub:   websocket.GetHub(),
-			rooms: rooms.GetManager(),
+// GetGameManager retourne l'instance singleton du GameManager
+func GetGameManager() *GameManager {
+	gameManagerOnce.Do(func() {
+		gameManagerInstance = &GameManager{
+			games:       make(map[string]*GameState),
+			roomManager: rooms.GetManager(),
 		}
 	})
-	return managerInstance
+	return gameManagerInstance
 }
 
 // StartGame démarre une nouvelle partie de Petit Bac
-func (gm *GameManager) StartGame(roomCode string) error {
-	room, err := gm.rooms.GetRoom(roomCode)
-	if err != nil {
-		return err
-	}
-
-	categories := room.Config.Categories
+func (gm *GameManager) StartGame(roomID string, categories []string, rounds int) (*GameState, error) {
 	if len(categories) == 0 {
 		categories = models.DefaultPetitBacCategories
 	}
 
-	totalRounds := room.Config.NbRounds
-	if totalRounds <= 0 {
-		totalRounds = models.NbrsManche
+	if rounds <= 0 || rounds > len(AvailableLetters) {
+		rounds = models.NbrsManche
 	}
 
-	game := &Game{
-		RoomCode:     roomCode,
+	state := &GameState{
+		RoomID:       roomID,
 		CurrentRound: 0,
-		TotalRounds:  totalRounds,
-		UsedLetters:  make([]string, 0),
+		TotalRounds:  rounds,
 		Categories:   categories,
-		Players:      make(map[int64]*PlayerState),
-		Scores:       make(map[int64]int),
-		RoundScores:  make(map[int64][]int),
-		Status:       "playing",
+		UsedLetters:  []string{},
+		Phase:        PhaseWaiting,
 	}
-
-	room.Mutex.RLock()
-	for userID, player := range room.Players {
-		game.Players[userID] = &PlayerState{
-			UserID:  userID,
-			Pseudo:  player.Pseudo,
-			Answers: make(map[string]string),
-			Votes:   make(map[string]map[int64]bool),
-		}
-		game.Scores[userID] = 0
-		game.RoundScores[userID] = make([]int, 0)
-	}
-	room.Mutex.RUnlock()
 
 	gm.mutex.Lock()
-	gm.games[roomCode] = game
+	gm.games[roomID] = state
 	gm.mutex.Unlock()
 
-	gm.startRound(game)
+	// Mettre à jour le statut de la salle
+	gm.roomManager.UpdateRoomStatus(roomID, models.RoomStatusPlaying)
+	gm.roomManager.ResetPlayerScores(roomID)
+
+	log.Printf("[PetitBac] Partie démarrée dans la salle %s avec %d manches", roomID, rounds)
+	return state, nil
+}
+
+// GetGameState retourne l'état actuel du jeu
+func (gm *GameManager) GetGameState(roomID string) *GameState {
+	gm.mutex.RLock()
+	defer gm.mutex.RUnlock()
+	return gm.games[roomID]
+}
+
+// NextRound passe à la manche suivante
+func (gm *GameManager) NextRound(roomID string) (*RoundInfo, error) {
+	state := gm.GetGameState(roomID)
+	if state == nil {
+		return nil, rooms.ErrRoomNotFound
+	}
+
+	state.Mutex.Lock()
+	defer state.Mutex.Unlock()
+
+	// Vérifier si le jeu est terminé
+	if state.CurrentRound >= state.TotalRounds {
+		return nil, nil
+	}
+
+	// Tirer une nouvelle lettre non utilisée
+	letter := gm.pickRandomLetter(state.UsedLetters)
+	state.UsedLetters = append(state.UsedLetters, letter)
+
+	// Réinitialiser pour la nouvelle manche
+	state.CurrentRound++
+	state.CurrentLetter = letter
+	state.TimeLeft = AnswerTime
+	state.Answers = make(map[int64]map[string]string)
+	state.HasSubmitted = make(map[int64]bool)
+	state.Votes = make(map[int64]map[string][]int64)
+	state.RoundStoppedBy = 0
+	state.Phase = PhaseAnswering
+
+	log.Printf("[PetitBac] Manche %d/%d - Lettre: %s", state.CurrentRound, state.TotalRounds, letter)
+
+	return &RoundInfo{
+		Round:      state.CurrentRound,
+		Total:      state.TotalRounds,
+		Letter:     letter,
+		Categories: state.Categories,
+		Duration:   state.TimeLeft,
+	}, nil
+}
+
+// RoundInfo informations envoyées aux joueurs pour une manche
+type RoundInfo struct {
+	Round      int      `json:"round"`
+	Total      int      `json:"total"`
+	Letter     string   `json:"letter"`
+	Categories []string `json:"categories"`
+	Duration   int      `json:"duration"`
+}
+
+// SubmitAnswers soumet les réponses d'un joueur
+func (gm *GameManager) SubmitAnswers(roomID string, userID int64, answers map[string]string) error {
+	state := gm.GetGameState(roomID)
+	if state == nil {
+		return rooms.ErrRoomNotFound
+	}
+
+	state.Mutex.Lock()
+	defer state.Mutex.Unlock()
+
+	if state.Phase != PhaseAnswering {
+		return nil
+	}
+
+	// Valider et nettoyer les réponses
+	cleanAnswers := make(map[string]string)
+	for _, cat := range state.Categories {
+		answer := strings.TrimSpace(answers[cat])
+		// Vérifier que la réponse commence par la bonne lettre
+		if len(answer) > 0 && strings.ToUpper(string(answer[0])) == state.CurrentLetter {
+			cleanAnswers[cat] = answer
+		} else {
+			cleanAnswers[cat] = "" // Réponse invalide
+		}
+	}
+
+	state.Answers[userID] = cleanAnswers
+	state.HasSubmitted[userID] = true
+
+	log.Printf("[PetitBac] Réponses de %d soumises", userID)
+	return nil
+}
+
+// StopRound arrête la manche (appelé par un joueur qui a fini)
+func (gm *GameManager) StopRound(roomID string, userID int64) error {
+	state := gm.GetGameState(roomID)
+	if state == nil {
+		return rooms.ErrRoomNotFound
+	}
+
+	state.Mutex.Lock()
+	defer state.Mutex.Unlock()
+
+	if state.Phase != PhaseAnswering {
+		return nil
+	}
+
+	state.RoundStoppedBy = userID
+	log.Printf("[PetitBac] Manche arrêtée par le joueur %d", userID)
+	
+	return nil
+}
+
+// StartVoting démarre la phase de vote
+func (gm *GameManager) StartVoting(roomID string) *VotingInfo {
+	state := gm.GetGameState(roomID)
+	if state == nil {
+		return nil
+	}
+
+	state.Mutex.Lock()
+	defer state.Mutex.Unlock()
+
+	state.Phase = PhaseVoting
+	state.TimeLeft = VoteTime
+
+	// Préparer les réponses à voter
+	allAnswers := make(map[string]map[int64]string) // Category -> UserID -> Answer
+	for _, cat := range state.Categories {
+		allAnswers[cat] = make(map[int64]string)
+		for userID, answers := range state.Answers {
+			if answer := answers[cat]; answer != "" {
+				allAnswers[cat][userID] = answer
+			}
+		}
+	}
+
+	log.Printf("[PetitBac] Phase de vote démarrée")
+
+	return &VotingInfo{
+		Answers:    allAnswers,
+		Duration:   VoteTime,
+		Categories: state.Categories,
+	}
+}
+
+// VotingInfo informations pour la phase de vote
+type VotingInfo struct {
+	Answers    map[string]map[int64]string `json:"answers"`
+	Duration   int                         `json:"duration"`
+	Categories []string                    `json:"categories"`
+}
+
+// SubmitVote soumet un vote contre une réponse
+func (gm *GameManager) SubmitVote(roomID string, voterID int64, targetUserID int64, category string, reject bool) error {
+	state := gm.GetGameState(roomID)
+	if state == nil {
+		return rooms.ErrRoomNotFound
+	}
+
+	state.Mutex.Lock()
+	defer state.Mutex.Unlock()
+
+	if state.Phase != PhaseVoting {
+		return nil
+	}
+
+	// Ne peut pas voter pour soi-même
+	if voterID == targetUserID {
+		return nil
+	}
+
+	// Initialiser les votes si nécessaire
+	if state.Votes[targetUserID] == nil {
+		state.Votes[targetUserID] = make(map[string][]int64)
+	}
+
+	if reject {
+		// Ajouter le vote de rejet
+		state.Votes[targetUserID][category] = append(state.Votes[targetUserID][category], voterID)
+	}
 
 	return nil
 }
 
-// startRound démarre une nouvelle manche
-func (gm *GameManager) startRound(game *Game) {
-	game.Mutex.Lock()
-
-	game.CurrentRound++
-	if game.CurrentRound > game.TotalRounds {
-		game.Mutex.Unlock()
-		gm.endGame(game)
-		return
+// CalculateRoundScores calcule les scores de la manche
+func (gm *GameManager) CalculateRoundScores(roomID string) *RoundScores {
+	state := gm.GetGameState(roomID)
+	if state == nil {
+		return nil
 	}
 
-	game.CurrentLetter = gm.pickRandomLetter(game.UsedLetters)
-	game.UsedLetters = append(game.UsedLetters, game.CurrentLetter)
-	game.Status = "playing"
-	game.RoundStart = time.Now()
-	game.StoppedBy = 0
+	state.Mutex.Lock()
+	defer state.Mutex.Unlock()
 
-	for _, player := range game.Players {
-		player.Answers = make(map[string]string)
-		player.Submitted = false
-		player.Votes = make(map[string]map[int64]bool)
+	state.Phase = PhaseResults
+
+	room, err := gm.roomManager.GetRoom(roomID)
+	if err != nil {
+		return nil
 	}
 
-	roundInfo := map[string]interface{}{
-		"round":        game.CurrentRound,
-		"total_rounds": game.TotalRounds,
-		"letter":       game.CurrentLetter,
-		"categories":   game.Categories,
+	room.Mutex.RLock()
+	totalPlayers := len(room.Players)
+	room.Mutex.RUnlock()
+
+	scores := make(map[int64]int)
+	details := make(map[int64]map[string]AnswerScore)
+
+	for userID, answers := range state.Answers {
+		details[userID] = make(map[string]AnswerScore)
+		
+		for category, answer := range answers {
+			if answer == "" {
+				details[userID][category] = AnswerScore{Answer: "", Points: 0, Rejected: false}
+				continue
+			}
+
+			// Compter les votes de rejet
+			rejectVotes := 0
+			if state.Votes[userID] != nil {
+				rejectVotes = len(state.Votes[userID][category])
+			}
+
+			// Réponse rejetée si majorité de votes contre
+			rejected := rejectVotes > totalPlayers/2
+
+			// Calculer les points
+			points := 0
+			if !rejected {
+				points = gm.calculateAnswerPoints(category, answer, state)
+			}
+
+			scores[userID] += points
+			details[userID][category] = AnswerScore{
+				Answer:   answer,
+				Points:   points,
+				Rejected: rejected,
+			}
+		}
 	}
-	roomCode := game.RoomCode
 
-	game.Mutex.Unlock()
+	// Ajouter les scores à la salle
+	for userID, pts := range scores {
+		gm.roomManager.AddPlayerScore(roomID, userID, pts)
+	}
 
-	gm.hub.Broadcast(roomCode, &models.WSMessage{
-		Type:    models.WSTypePBNewRound,
-		Payload: roundInfo,
-	})
+	log.Printf("[PetitBac] Scores de la manche calculés")
 
-	log.Printf("🎼 Petit Bac %s: Manche %d - Lettre %s", roomCode, game.CurrentRound, game.CurrentLetter)
+	return &RoundScores{
+		Scores:  scores,
+		Details: details,
+	}
 }
 
-// pickRandomLetter choisit une lettre aléatoire non utilisée
+// AnswerScore score détaillé d'une réponse
+type AnswerScore struct {
+	Answer   string `json:"answer"`
+	Points   int    `json:"points"`
+	Rejected bool   `json:"rejected"`
+}
+
+// RoundScores scores de la manche
+type RoundScores struct {
+	Scores  map[int64]int                    `json:"scores"`
+	Details map[int64]map[string]AnswerScore `json:"details"`
+}
+
+// calculateAnswerPoints calcule les points pour une réponse
+func (gm *GameManager) calculateAnswerPoints(category, answer string, state *GameState) int {
+	// Vérifier si c'est une réponse unique
+	answerLower := strings.ToLower(answer)
+	count := 0
+	
+	for _, answers := range state.Answers {
+		if strings.ToLower(answers[category]) == answerLower {
+			count++
+		}
+	}
+
+	// Points: 10 si unique, 5 si partagé
+	if count == 1 {
+		return 10
+	}
+	return 5
+}
+
+// GetScores retourne les scores actuels
+func (gm *GameManager) GetScores(roomID string) []PlayerScore {
+	room, err := gm.roomManager.GetRoom(roomID)
+	if err != nil {
+		return nil
+	}
+
+	room.Mutex.RLock()
+	defer room.Mutex.RUnlock()
+
+	scores := make([]PlayerScore, 0, len(room.Players))
+	for _, player := range room.Players {
+		scores = append(scores, PlayerScore{
+			UserID: player.UserID,
+			Pseudo: player.Pseudo,
+			Score:  player.Score,
+		})
+	}
+
+	// Trier par score décroissant
+	for i := 0; i < len(scores)-1; i++ {
+		for j := i + 1; j < len(scores); j++ {
+			if scores[j].Score > scores[i].Score {
+				scores[i], scores[j] = scores[j], scores[i]
+			}
+		}
+	}
+
+	return scores
+}
+
+// PlayerScore score d'un joueur
+type PlayerScore struct {
+	UserID int64  `json:"user_id"`
+	Pseudo string `json:"pseudo"`
+	Score  int    `json:"score"`
+}
+
+// EndGame termine la partie
+func (gm *GameManager) EndGame(roomID string) *GameResult {
+	state := gm.GetGameState(roomID)
+	if state == nil {
+		return nil
+	}
+
+	// Mettre à jour le statut de la salle
+	gm.roomManager.UpdateRoomStatus(roomID, models.RoomStatusFinished)
+
+	scores := gm.GetScores(roomID)
+
+	// Supprimer l'état du jeu
+	gm.mutex.Lock()
+	delete(gm.games, roomID)
+	gm.mutex.Unlock()
+
+	log.Printf("[PetitBac] Partie terminée dans la salle %s", roomID)
+
+	winner := ""
+	if len(scores) > 0 {
+		winner = scores[0].Pseudo
+	}
+
+	return &GameResult{
+		Scores: scores,
+		Winner: winner,
+	}
+}
+
+// GameResult résultat final de la partie
+type GameResult struct {
+	Scores []PlayerScore `json:"scores"`
+	Winner string        `json:"winner"`
+}
+
+// IsGameOver vérifie si le jeu est terminé
+func (gm *GameManager) IsGameOver(roomID string) bool {
+	state := gm.GetGameState(roomID)
+	if state == nil {
+		return true
+	}
+	state.Mutex.RLock()
+	defer state.Mutex.RUnlock()
+	return state.CurrentRound >= state.TotalRounds
+}
+
+// AllPlayersSubmitted vérifie si tous les joueurs ont soumis leurs réponses
+func (gm *GameManager) AllPlayersSubmitted(roomID string) bool {
+	state := gm.GetGameState(roomID)
+	if state == nil {
+		return false
+	}
+
+	room, err := gm.roomManager.GetRoom(roomID)
+	if err != nil {
+		return false
+	}
+
+	state.Mutex.RLock()
+	defer state.Mutex.RUnlock()
+
+	room.Mutex.RLock()
+	defer room.Mutex.RUnlock()
+
+	for userID := range room.Players {
+		if !state.HasSubmitted[userID] {
+			return false
+		}
+	}
+
+	return true
+}
+
+// ============================================================================
+// FONCTIONS UTILITAIRES
+// ============================================================================
+
+// pickRandomLetter sélectionne une lettre aléatoire non utilisée
 func (gm *GameManager) pickRandomLetter(usedLetters []string) string {
 	available := make([]string, 0)
+	
 	for _, letter := range AvailableLetters {
 		used := false
 		for _, usedLetter := range usedLetters {
@@ -190,568 +523,14 @@ func (gm *GameManager) pickRandomLetter(usedLetters []string) string {
 	}
 
 	if len(available) == 0 {
-		return AvailableLetters[rand.Intn(len(AvailableLetters))]
+		// Toutes les lettres utilisées, on recommence
+		return AvailableLetters[rand.IntN(len(AvailableLetters))]
 	}
 
-	return available[rand.Intn(len(available))]
+	return available[rand.IntN(len(available))]
 }
 
-// SubmitAnswers soumet les réponses d'un joueur
-func (gm *GameManager) SubmitAnswers(roomCode string, userID int64, answers map[string]string) {
-	gm.mutex.RLock()
-	game, exists := gm.games[roomCode]
-	gm.mutex.RUnlock()
-
-	if !exists {
-		return
-	}
-
-	game.Mutex.Lock()
-
-	if game.Status != "playing" {
-		game.Mutex.Unlock()
-		return
-	}
-
-	player, exists := game.Players[userID]
-	if !exists || player.Submitted {
-		game.Mutex.Unlock()
-		return
-	}
-
-	for category, answer := range answers {
-		answer = strings.TrimSpace(answer)
-		if answer != "" && !strings.HasPrefix(strings.ToUpper(answer), game.CurrentLetter) {
-			answers[category] = ""
-		} else {
-			answers[category] = answer
-		}
-	}
-
-	player.Answers = answers
-	player.Submitted = true
-
-	pseudo := player.Pseudo
-	roomCodeCopy := game.RoomCode
-
-	allSubmitted := true
-	for _, p := range game.Players {
-		if !p.Submitted {
-			allSubmitted = false
-			break
-		}
-	}
-
-	game.Mutex.Unlock()
-
-	gm.hub.Broadcast(roomCodeCopy, &models.WSMessage{
-		Type: models.WSTypePBAnswer,
-		Payload: map[string]interface{}{
-			"user_id":   userID,
-			"pseudo":    pseudo,
-			"submitted": true,
-		},
-	})
-
-	log.Printf("📝 Petit Bac %s: %s a soumis ses réponses", roomCodeCopy, pseudo)
-
-	if allSubmitted {
-		gm.startVoting(game)
-	}
-}
-
-// StopRound arrête la manche
-func (gm *GameManager) StopRound(roomCode string, userID int64) {
-	gm.mutex.RLock()
-	game, exists := gm.games[roomCode]
-	gm.mutex.RUnlock()
-
-	if !exists {
-		return
-	}
-
-	game.Mutex.Lock()
-
-	if game.Status != "playing" || game.StoppedBy != 0 {
-		game.Mutex.Unlock()
-		return
-	}
-
-	player, exists := game.Players[userID]
-	if !exists || !player.Submitted {
-		game.Mutex.Unlock()
-		return
-	}
-
-	game.StoppedBy = userID
-	pseudo := player.Pseudo
-	roomCodeCopy := game.RoomCode
-
-	game.Mutex.Unlock()
-
-	gm.hub.Broadcast(roomCodeCopy, &models.WSMessage{
-		Type: models.WSTypePBStopRound,
-		Payload: map[string]interface{}{
-			"stopped_by": userID,
-			"pseudo":     pseudo,
-		},
-	})
-
-	log.Printf("🛑 Petit Bac %s: %s a stoppé la manche", roomCodeCopy, pseudo)
-
-	time.AfterFunc(3*time.Second, func() {
-		gm.startVoting(game)
-	})
-}
-
-// startVoting démarre la phase de vote
-func (gm *GameManager) startVoting(game *Game) {
-	game.Mutex.Lock()
-
-	if game.Status != "playing" {
-		game.Mutex.Unlock()
-		return
-	}
-
-	game.Status = "voting"
-
-	answersToVote := make(map[string][]map[string]interface{})
-	for _, category := range game.Categories {
-		answersToVote[category] = make([]map[string]interface{}, 0)
-		for _, player := range game.Players {
-			answer := player.Answers[category]
-			if answer != "" {
-				answersToVote[category] = append(answersToVote[category], map[string]interface{}{
-					"user_id": player.UserID,
-					"pseudo":  player.Pseudo,
-					"answer":  answer,
-				})
-			}
-		}
-	}
-
-	roomCode := game.RoomCode
-	game.Mutex.Unlock()
-
-	gm.hub.Broadcast(roomCode, &models.WSMessage{
-		Type: models.WSTypePBVote,
-		Payload: map[string]interface{}{
-			"phase":   "start",
-			"answers": answersToVote,
-		},
-	})
-
-	log.Printf("🗳️ Petit Bac %s: Phase de vote", roomCode)
-}
-
-// SubmitVote soumet un vote pour une réponse
-func (gm *GameManager) SubmitVote(roomCode string, voterID int64, targetUserID int64, category string, isValid bool) {
-	gm.mutex.RLock()
-	game, exists := gm.games[roomCode]
-	gm.mutex.RUnlock()
-
-	if !exists {
-		return
-	}
-
-	game.Mutex.Lock()
-
-	if game.Status != "voting" {
-		game.Mutex.Unlock()
-		return
-	}
-
-	voter, exists := game.Players[voterID]
-	if !exists || voterID == targetUserID {
-		game.Mutex.Unlock()
-		return
-	}
-
-	if voter.Votes[category] == nil {
-		voter.Votes[category] = make(map[int64]bool)
-	}
-	voter.Votes[category][targetUserID] = isValid
-
-	allVoted := gm.checkAllVotesComplete(game)
-
-	roomCodeCopy := game.RoomCode
-	game.Mutex.Unlock()
-
-	gm.hub.Broadcast(roomCodeCopy, &models.WSMessage{
-		Type: models.WSTypePBVote,
-		Payload: map[string]interface{}{
-			"phase":     "vote",
-			"voter_id":  voterID,
-			"target_id": targetUserID,
-			"category":  category,
-		},
-	})
-
-	if allVoted {
-		gm.endRound(game)
-	}
-}
-
-// checkAllVotesComplete vérifie si tous les votes sont terminés
-func (gm *GameManager) checkAllVotesComplete(game *Game) bool {
-	for _, category := range game.Categories {
-		for _, targetPlayer := range game.Players {
-			if targetPlayer.Answers[category] == "" {
-				continue
-			}
-
-			voteCount := 0
-			for _, voter := range game.Players {
-				if voter.UserID == targetPlayer.UserID {
-					continue
-				}
-				if voter.Votes[category] != nil {
-					if _, voted := voter.Votes[category][targetPlayer.UserID]; voted {
-						voteCount++
-					}
-				}
-			}
-
-			expectedVotes := len(game.Players) - 1
-			if voteCount < expectedVotes {
-				return false
-			}
-		}
-	}
-	return true
-}
-
-// endRound termine la manche et calcule les scores
-func (gm *GameManager) endRound(game *Game) {
-	game.Mutex.Lock()
-
-	if game.Status != "voting" {
-		game.Mutex.Unlock()
-		return
-	}
-
-	game.Status = "results"
-
-	type AnswerResult struct {
-		UserID       int64  `json:"user_id"`
-		Pseudo       string `json:"pseudo"`
-		Answer       string `json:"answer"`
-		VotesFor     int    `json:"votes_for"`
-		VotesAgainst int    `json:"votes_against"`
-		Points       int    `json:"points"`
-		IsValid      bool   `json:"is_valid"`
-	}
-
-	results := make(map[string][]*AnswerResult)
-
-	for _, category := range game.Categories {
-		results[category] = make([]*AnswerResult, 0)
-
-		answersMap := make(map[string][]int64)
-
-		for _, player := range game.Players {
-			answer := strings.ToLower(strings.TrimSpace(player.Answers[category]))
-			if answer != "" {
-				answersMap[answer] = append(answersMap[answer], player.UserID)
-			}
-		}
-
-		for _, player := range game.Players {
-			answer := player.Answers[category]
-			if answer == "" {
-				results[category] = append(results[category], &AnswerResult{
-					UserID:  player.UserID,
-					Pseudo:  player.Pseudo,
-					Answer:  "",
-					Points:  PointsInvalid,
-					IsValid: false,
-				})
-				continue
-			}
-
-			votesFor := 0
-			votesAgainst := 0
-			for _, voter := range game.Players {
-				if voter.UserID == player.UserID {
-					continue
-				}
-				if voter.Votes[category] != nil {
-					if valid, voted := voter.Votes[category][player.UserID]; voted {
-						if valid {
-							votesFor++
-						} else {
-							votesAgainst++
-						}
-					}
-				}
-			}
-
-			totalVotes := votesFor + votesAgainst
-			isValid := totalVotes > 0 && votesFor > votesAgainst
-
-			points := PointsInvalid
-			if isValid {
-				normalizedAnswer := strings.ToLower(strings.TrimSpace(answer))
-				if len(answersMap[normalizedAnswer]) == 1 {
-					points = PointsUniqueValid
-				} else {
-					points = PointsSharedValid
-				}
-			}
-
-			results[category] = append(results[category], &AnswerResult{
-				UserID:       player.UserID,
-				Pseudo:       player.Pseudo,
-				Answer:       answer,
-				Points:       points,
-				IsValid:      isValid,
-				VotesFor:     votesFor,
-				VotesAgainst: votesAgainst,
-			})
-
-			game.Scores[player.UserID] += points
-		}
-	}
-
-	for userID := range game.Players {
-		roundScore := 0
-		for _, categoryResults := range results {
-			for _, result := range categoryResults {
-				if result.UserID == userID {
-					roundScore += result.Points
-				}
-			}
-		}
-		game.RoundScores[userID] = append(game.RoundScores[userID], roundScore)
-	}
-
-	roomCode := game.RoomCode
-	scores := make(map[int64]int)
-	for k, v := range game.Scores {
-		scores[k] = v
-	}
-
-	game.Mutex.Unlock()
-
-	gm.hub.Broadcast(roomCode, &models.WSMessage{
-		Type: models.WSTypePBVoteResult,
-		Payload: map[string]interface{}{
-			"results": results,
-			"scores":  scores,
-		},
-	})
-
-	log.Printf("📊 Petit Bac %s: Résultats manche %d", roomCode, game.CurrentRound)
-
-	time.AfterFunc(5*time.Second, func() {
-		gm.startRound(game)
-	})
-}
-
-// endGame termine la partie
-func (gm *GameManager) endGame(game *Game) {
-	game.Mutex.Lock()
-	game.Status = "finished"
-
-	roomCode := game.RoomCode
-	scores := make(map[int64]int)
-	for k, v := range game.Scores {
-		scores[k] = v
-	}
-	roundScores := make(map[int64][]int)
-	for k, v := range game.RoundScores {
-		roundScores[k] = v
-	}
-
-	game.Mutex.Unlock()
-
-	rankings := gm.buildRankings(scores)
-
-	gm.hub.Broadcast(roomCode, &models.WSMessage{
-		Type: models.WSTypePBGameEnd,
-		Payload: map[string]interface{}{
-			"rankings":     rankings,
-			"scores":       scores,
-			"round_scores": roundScores,
-		},
-	})
-
-	gm.rooms.EndGame(roomCode)
-
-	service := rooms.NewService()
-	room, _ := gm.rooms.GetRoom(roomCode)
-	service.SaveGameScores(room, roundScores)
-
-	gm.mutex.Lock()
-	delete(gm.games, roomCode)
-	gm.mutex.Unlock()
-
-	log.Printf("🏆 Petit Bac %s terminé", roomCode)
-}
-
-// buildRankings construit le classement final
-func (gm *GameManager) buildRankings(scores map[int64]int) []map[string]interface{} {
-	type entry struct {
-		UserID int64
-		Score  int
-	}
-
-	entries := make([]entry, 0, len(scores))
-	for userID, score := range scores {
-		entries = append(entries, entry{UserID: userID, Score: score})
-	}
-
-	for i := 0; i < len(entries)-1; i++ {
-		for j := i + 1; j < len(entries); j++ {
-			if entries[i].Score < entries[j].Score {
-				entries[i], entries[j] = entries[j], entries[i]
-			}
-		}
-	}
-
-	rankings := make([]map[string]interface{}, 0)
-	for rank, e := range entries {
-		rankings = append(rankings, map[string]interface{}{
-			"rank":    rank + 1,
-			"user_id": e.UserID,
-			"score":   e.Score,
-		})
-	}
-
-	return rankings
-}
-
-// GetGame retourne une partie en cours
-func (gm *GameManager) GetGame(roomCode string) *Game {
-	gm.mutex.RLock()
-	defer gm.mutex.RUnlock()
-	return gm.games[roomCode]
-}
-
-// ============================================================================
-// HANDLER HTTP POUR CRUD CATÉGORIES
-// ============================================================================
-
-// Handler gère les requêtes HTTP pour le Petit Bac
-type Handler struct{}
-
-// NewHandler crée un nouveau handler
-func NewHandler() *Handler {
-	return &Handler{}
-}
-
-// CategoriesAPI gère le CRUD des catégories
-func (h *Handler) CategoriesAPI(w http.ResponseWriter, r *http.Request) {
-	switch r.Method {
-	case http.MethodGet:
-		h.listCategories(w, r)
-	case http.MethodPost:
-		h.createCategory(w, r)
-	default:
-		http.Error(w, "Méthode non autorisée", http.StatusMethodNotAllowed)
-	}
-}
-
-// CategoryAPI gère le CRUD d'une catégorie spécifique
-func (h *Handler) CategoryAPI(w http.ResponseWriter, r *http.Request) {
-	path := strings.TrimPrefix(r.URL.Path, "/api/petitbac/categories/")
-	id, err := strconv.ParseInt(path, 10, 64)
-	if err != nil {
-		http.Error(w, "ID invalide", http.StatusBadRequest)
-		return
-	}
-
-	switch r.Method {
-	case http.MethodDelete:
-		h.deleteCategory(w, r, id)
-	default:
-		http.Error(w, "Méthode non autorisée", http.StatusMethodNotAllowed)
-	}
-}
-
-// listCategories liste toutes les catégories
-func (h *Handler) listCategories(w http.ResponseWriter, _ *http.Request) {
-	db := database.GetDB()
-
-	rows, err := db.Query("SELECT id, name, created_at FROM petitbac_categories ORDER BY name")
-	if err != nil {
-		http.Error(w, "Erreur base de données", http.StatusInternalServerError)
-		return
-	}
-	defer rows.Close()
-
-	categories := make([]models.PetitBacCategory, 0)
-	for rows.Next() {
-		var cat models.PetitBacCategory
-		if err := rows.Scan(&cat.ID, &cat.Name, &cat.CreatedAt); err != nil {
-			continue
-		}
-		categories = append(categories, cat)
-	}
-
-	w.Header().Set("Content-Type", "application/json")
-	json.NewEncoder(w).Encode(map[string]interface{}{
-		"categories": categories,
-	})
-}
-
-// createCategory crée une nouvelle catégorie
-func (h *Handler) createCategory(w http.ResponseWriter, r *http.Request) {
-	var req struct {
-		Name string `json:"name"`
-	}
-
-	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-		http.Error(w, "JSON invalide", http.StatusBadRequest)
-		return
-	}
-
-	name := strings.TrimSpace(req.Name)
-	if name == "" {
-		http.Error(w, "Nom requis", http.StatusBadRequest)
-		return
-	}
-
-	db := database.GetDB()
-
-	result, err := db.Exec(
-		"INSERT INTO petitbac_categories (name) VALUES (?)",
-		strings.ToLower(name),
-	)
-	if err != nil {
-		if strings.Contains(err.Error(), "UNIQUE") {
-			http.Error(w, "Catégorie déjà existante", http.StatusConflict)
-			return
-		}
-		http.Error(w, "Erreur création", http.StatusInternalServerError)
-		return
-	}
-
-	id, _ := result.LastInsertId()
-
-	w.Header().Set("Content-Type", "application/json")
-	w.WriteHeader(http.StatusCreated)
-	json.NewEncoder(w).Encode(map[string]interface{}{
-		"id":   id,
-		"name": name,
-	})
-}
-
-// deleteCategory supprime une catégorie
-func (h *Handler) deleteCategory(w http.ResponseWriter, _ *http.Request, id int64) {
-	db := database.GetDB()
-
-	result, err := db.Exec("DELETE FROM petitbac_categories WHERE id = ?", id)
-	if err != nil {
-		http.Error(w, "Erreur suppression", http.StatusInternalServerError)
-		return
-	}
-
-	affected, _ := result.RowsAffected()
-	if affected == 0 {
-		http.Error(w, "Catégorie non trouvée", http.StatusNotFound)
-		return
-	}
-
-	w.WriteHeader(http.StatusNoContent)
+// GetAvailableCategories retourne les catégories disponibles
+func GetAvailableCategories() []string {
+	return models.DefaultPetitBacCategories
 }

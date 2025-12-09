@@ -17,7 +17,7 @@ import (
 const (
 	// SessionCookieName nom du cookie de session
 	SessionCookieName = "session_id"
-	
+
 	// SessionDuration durée de validité d'une session (24h)
 	SessionDuration = 24 * time.Hour
 )
@@ -110,6 +110,12 @@ func (sm *SessionManager) ExtendSession(sessionID string) error {
 		"UPDATE sessions SET expires_at = ? WHERE id = ?",
 		newExpiry, sessionID,
 	)
+	return err
+}
+
+// CleanExpiredSessions nettoie les sessions expirées
+func (sm *SessionManager) CleanExpiredSessions() error {
+	_, err := sm.db.Exec("DELETE FROM sessions WHERE expires_at < ?", time.Now())
 	return err
 }
 
