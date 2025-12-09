@@ -109,7 +109,7 @@ func main() {
 			http.NotFound(w, r)
 			return
 		}
-		http.Redirect(w, r, "/lobby", http.StatusSeeOther)
+		http.Redirect(w, r, "/acceuil", http.StatusSeeOther)
 	})
 
 	// Authentification
@@ -118,6 +118,7 @@ func main() {
 	mux.HandleFunc("/logout", authHandler.HandleLogout)
 
 	// Lobby et salles
+	mux.HandleFunc("/accueil", roomHandler.HandleLobby) // Ancien chemin pour compatibilité
 	mux.HandleFunc("/lobby", roomHandler.HandleLobby)
 	mux.HandleFunc("/room/", roomHandler.HandleRoom)
 

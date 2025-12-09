@@ -10,22 +10,22 @@ import (
 	"groupie-tracker/internal/models"
 )
 
-// Service gère la persistance des salles
-type Service struct {
+// PersistenceService gère la persistance des salles
+type PersistenceService struct {
 	db      *sql.DB
 	manager *Manager
 }
 
-// NewService crée une nouvelle instance du service
-func NewService() *Service {
-	return &Service{
+// NewPersistenceService crée une nouvelle instance du service de persistance
+func NewPersistenceService() *PersistenceService {
+	return &PersistenceService{
 		db:      database.GetDB(),
 		manager: GetManager(),
 	}
 }
 
 // SaveRoom sauvegarde une salle en base de données
-func (s *Service) SaveRoom(room *models.Room) error {
+func (s *PersistenceService) SaveRoom(room *models.Room) error {
 	room.Mutex.RLock()
 	defer room.Mutex.RUnlock()
 
@@ -43,7 +43,7 @@ func (s *Service) SaveRoom(room *models.Room) error {
 }
 
 // SaveRoomPlayers sauvegarde les joueurs d'une salle
-func (s *Service) SaveRoomPlayers(room *models.Room) error {
+func (s *PersistenceService) SaveRoomPlayers(room *models.Room) error {
 	room.Mutex.RLock()
 	defer room.Mutex.RUnlock()
 
@@ -68,7 +68,7 @@ func (s *Service) SaveRoomPlayers(room *models.Room) error {
 }
 
 // SaveGameScores sauvegarde les scores d'une partie
-func (s *Service) SaveGameScores(room *models.Room, roundScores map[int64][]int) error {
+func (s *PersistenceService) SaveGameScores(room *models.Room, roundScores map[int64][]int) error {
 	room.Mutex.RLock()
 	defer room.Mutex.RUnlock()
 
@@ -88,7 +88,7 @@ func (s *Service) SaveGameScores(room *models.Room, roundScores map[int64][]int)
 }
 
 // GetUserGameHistory récupère l'historique des parties d'un utilisateur
-func (s *Service) GetUserGameHistory(userID int64, limit int) ([]GameHistoryEntry, error) {
+func (s *PersistenceService) GetUserGameHistory(userID int64, limit int) ([]GameHistoryEntry, error) {
 	query := `
 		SELECT gs.room_id, r.name, gs.game_type, gs.score, gs.round_scores, gs.created_at
 		FROM game_scores gs
@@ -132,7 +132,7 @@ type GameHistoryEntry struct {
 }
 
 // GetLeaderboard récupère le classement général
-func (s *Service) GetLeaderboard(gameType models.GameType, limit int) ([]LeaderboardEntry, error) {
+func (s *PersistenceService) GetLeaderboard(gameType models.GameType, limit int) ([]LeaderboardEntry, error) {
 	query := `
 		SELECT u.id, u.pseudo, SUM(gs.score) as total_score, COUNT(gs.id) as games_played
 		FROM game_scores gs
@@ -175,7 +175,7 @@ type LeaderboardEntry struct {
 }
 
 // CleanOldRooms supprime les salles terminées de plus de 24h
-func (s *Service) CleanOldRooms() error {
+func (s *PersistenceService) CleanOldRooms() error {
 	_, err := s.db.Exec(`
 		DELETE FROM rooms 
 		WHERE status = 'finished' 

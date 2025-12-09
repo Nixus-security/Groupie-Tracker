@@ -47,9 +47,25 @@ func (h *Handler) loadTemplates() {
 		"index.html",
 	}
 
+	// Fonctions personnalisées pour les templates
+	funcMap := template.FuncMap{
+		"slice": func(s string, start, end int) string {
+			if start >= len(s) {
+				return ""
+			}
+			if end > len(s) {
+				end = len(s)
+			}
+			return s[start:end]
+		},
+		"eq": func(a, b interface{}) bool {
+			return a == b
+		},
+	}
+
 	for _, file := range templateFiles {
 		path := filepath.Join(h.templateDir, file)
-		tmpl, err := template.ParseFiles(path)
+		tmpl, err := template.New(file).Funcs(funcMap).ParseFiles(path)
 		if err != nil {
 			log.Printf("[Rooms] Erreur chargement template %s: %v", file, err)
 			continue

@@ -480,16 +480,8 @@ func (m *Manager) cleanupInactiveRooms() {
 }
 
 // ============================================================================
-// ALIAS POUR COMPATIBILITÉ AVEC L'ANCIEN CODE
+// MÉTHODES DE JEU
 // ============================================================================
-
-// Service est un alias pour Manager (compatibilité)
-type Service = Manager
-
-// NewService retourne l'instance du Manager (compatibilité avec ancien code)
-func NewService() *Manager {
-	return GetManager()
-}
 
 // StartGame démarre une partie dans une salle (met à jour le statut)
 func (m *Manager) StartGame(roomID string) error {
