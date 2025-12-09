@@ -2,11 +2,8 @@
 package blindtest
 
 import (
-	"encoding/json"
 	"log"
 	"math/rand/v2"
-	"net/http"
-	"strconv"
 	"strings"
 	"sync"
 	"time"
@@ -18,17 +15,17 @@ import (
 
 // GameState représente l'état d'une partie de Blind Test
 type GameState struct {
-	RoomID       string                `json:"room_id"`
-	CurrentRound int                   `json:"current_round"`
-	TotalRounds  int                   `json:"total_rounds"`
-	CurrentTrack *models.SpotifyTrack  `json:"current_track,omitempty"`
+	RoomID       string                 `json:"room_id"`
+	CurrentRound int                    `json:"current_round"`
+	TotalRounds  int                    `json:"total_rounds"`
+	CurrentTrack *models.SpotifyTrack   `json:"current_track,omitempty"`
 	Tracks       []*models.SpotifyTrack `json:"-"` // Ne pas exposer les réponses
-	TimeLeft     int                   `json:"time_left"`
-	Answers      map[int64]string      `json:"answers"`     // UserID -> réponse
-	HasAnswered  map[int64]bool        `json:"has_answered"` // UserID -> a répondu
-	IsRevealed   bool                  `json:"is_revealed"`
-	Timer        *time.Timer           `json:"-"`
-	Mutex        sync.RWMutex          `json:"-"`
+	TimeLeft     int                    `json:"time_left"`
+	Answers      map[int64]string       `json:"answers"`      // UserID -> réponse
+	HasAnswered  map[int64]bool         `json:"has_answered"` // UserID -> a répondu
+	IsRevealed   bool                   `json:"is_revealed"`
+	Timer        *time.Timer            `json:"-"`
+	Mutex        sync.RWMutex           `json:"-"`
 }
 
 // GameManager gère toutes les parties de Blind Test actives
@@ -275,9 +272,14 @@ func (gm *GameManager) EndGame(roomID string) *GameResult {
 
 	log.Printf("[BlindTest] Partie terminée dans la salle %s", roomID)
 
+	winner := ""
+	if len(scores) > 0 {
+		winner = scores[0].Pseudo
+	}
+
 	return &GameResult{
 		Scores: scores,
-		Winner: scores[0].Pseudo,
+		Winner: winner,
 	}
 }
 
@@ -407,100 +409,4 @@ func ShuffleTracks(tracks []*models.SpotifyTrack) {
 	rand.Shuffle(len(tracks), func(i, j int) {
 		tracks[i], tracks[j] = tracks[j], tracks[i]
 	})
-}
-
-// GetManager est un alias pour GetGameManager (compatibilité)
-func GetManager() *GameManager {
-	return GetGameManager()
-}
-
-// Handler gère les requêtes HTTP pour le Blind Test
-type Handler struct {
-	gameManager *GameManager
-	roomManager *rooms.Manager
-}
-
-// NewHandler crée un nouveau handler Blind Test
-func NewHandler() *Handler {
-	return &Handler{
-		gameManager: GetGameManager(),
-		roomManager: rooms.GetManager(),
-	}
-}
-
-// GetGameManager retourne le GameManager du handler
-func (h *Handler) GetGameManager() *GameManager {
-	return h.gameManager
-}
-
-// GetManager alias pour GetGameManager (compatibilité)
-func GetManager() *GameManager {
-	return GetGameManager()
-}
-
-// Handler gère les requêtes HTTP pour le Blind Test
-type Handler struct {
-	gameManager *GameManager
-	roomManager *rooms.Manager
-}
-
-// NewHandler crée un nouveau handler Blind Test
-func NewHandler() *Handler {
-	return &Handler{
-		gameManager: GetGameManager(),
-		roomManager: rooms.GetManager(),
-	}
-}
-
-// HandleStart démarre une partie de Blind Test
-func (h *Handler) HandleStart(w http.ResponseWriter, r *http.Request) {
-	roomID := r.URL.Query().Get("room_id")
-	if roomID == "" {
-		http.Error(w, "room_id manquant", http.StatusBadRequest)
-		return
-	}
-
-	genre := r.FormValue("genre")
-	if genre == "" {
-		genre = "Pop"
-	}
-
-	rounds := 10 // Par défaut
-
-	state, err := h.gameManager.StartGame(roomID, genre, rounds)
-	if err != nil {
-		http.Error(w, err.Error(), http.StatusInternalServerError)
-		return
-	}
-
-	w.Header().Set("Content-Type", "application/json")
-	json.NewEncoder(w).Encode(map[string]interface{}{
-		"success": true,
-		"state":   state,
-	})
-}
-
-// HandleAnswer soumet une réponse
-func (h *Handler) HandleAnswer(w http.ResponseWriter, r *http.Request) {
-	roomID := r.URL.Query().Get("room_id")
-	userIDStr := r.URL.Query().Get("user_id")
-	
-	userID, _ := strconv.ParseInt(userIDStr, 10, 64)
-
-	var req struct {
-		Answer string `json:"answer"`
-	}
-	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-		http.Error(w, "Format invalide", http.StatusBadRequest)
-		return
-	}
-
-	result, err := h.gameManager.SubmitAnswer(roomID, userID, req.Answer)
-	if err != nil {
-		http.Error(w, err.Error(), http.StatusInternalServerError)
-		return
-	}
-
-	w.Header().Set("Content-Type", "application/json")
-	json.NewEncoder(w).Encode(result)
 }
