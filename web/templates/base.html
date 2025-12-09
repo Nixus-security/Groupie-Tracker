@@ -1,0 +1,42 @@
+{{define "base"}}
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>{{.Title}} - Groupie-Tracker</title>
+    <link rel="stylesheet" href="/static/style.css">
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+</head>
+<body>
+    <nav class="navbar">
+        <div class="nav-container">
+            <a href="/" class="nav-brand">🎵 Groupie-Tracker</a>
+            <div class="nav-links">
+                {{if .User}}
+                    <a href="/rooms">Salles</a>
+                    <a href="/room/create">Créer</a>
+                    <span class="nav-user">{{.User.Pseudo}}</span>
+                    <a href="/logout" class="btn btn-sm btn-danger">Déconnexion</a>
+                {{else}}
+                    <a href="/login" class="btn btn-sm btn-primary">Connexion</a>
+                    <a href="/register" class="btn btn-sm btn-secondary">Inscription</a>
+                {{end}}
+            </div>
+        </div>
+    </nav>
+    
+    <main class="container">
+        {{template "content" .}}
+    </main>
+    
+    <footer>
+        <p>© 2024 Groupie-Tracker - Projet Go</p>
+    </footer>
+    
+    
+</body>
+</html>
+{{end}}
