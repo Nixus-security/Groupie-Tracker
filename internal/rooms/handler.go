@@ -3,7 +3,6 @@ package rooms
 
 import (
 	"encoding/json"
-	"fmt"
 	"html/template"
 	"log"
 	"net/http"
@@ -83,24 +82,25 @@ func (h *Handler) HandleRoom(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Récupérer la salle
+	// Récupérer la salle par code ou par ID
 	manager := GetManager()
-	room, err := manager.GetRoom(code)
-	if err != nil || room == nil {
-		http.Error(w, "Salle introuvable", http.StatusNotFound)
-		return
-	}
-
-	// Vérifier si l'utilisateur est dans la salle (accès direct au slice Players)
-	var player *models.Player
-	room.Mu.RLock()
-	for _, p := range room.Players {
-		if p.UserID == user.ID {
-			player = p
-			break
+	room, err := manager.GetRoomByCode(code)
+	if err != nil {
+		// Essayer par ID si le code ne marche pas
+		room, err = manager.GetRoom(code)
+		if err != nil || room == nil {
+			http.Error(w, "Salle introuvable", http.StatusNotFound)
+			return
 		}
 	}
-	room.Mu.RUnlock()
+
+	// Vérifier si l'utilisateur est dans la salle (accès à la map Players)
+	var player *models.Player
+	room.Mutex.RLock()
+	if p, exists := room.Players[user.ID]; exists {
+		player = p
+	}
+	room.Mutex.RUnlock()
 
 	if player == nil {
 		// L'utilisateur n'est pas dans la salle, rediriger vers le lobby
@@ -204,9 +204,9 @@ func (h *Handler) HandleCreateRoom(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// Créer la salle avec la bonne signature
-	// CreateRoom(name string, hostID int64, code string, gameType models.GameType)
+	// CreateRoom(name string, hostID int64, hostPseudo string, gameType models.GameType)
 	manager := GetManager()
-	room, err := manager.CreateRoom(roomName, user.ID, "", gameType)
+	room, err := manager.CreateRoom(roomName, user.ID, user.Pseudo, gameType)
 	if err != nil {
 		log.Printf("[ROOMS] Erreur création salle: %v", err)
 		http.Error(w, "Erreur création salle", http.StatusInternalServerError)
@@ -246,12 +246,16 @@ func (h *Handler) HandleJoinRoom(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Rejoindre la salle
+	// Rejoindre la salle par code
 	manager := GetManager()
-	room, err := manager.GetRoom(code)
-	if err != nil || room == nil {
-		http.Redirect(w, r, "/room/join?error=Salle+introuvable", http.StatusSeeOther)
-		return
+	room, err := manager.GetRoomByCode(code)
+	if err != nil {
+		// Essayer par ID
+		room, err = manager.GetRoom(code)
+		if err != nil || room == nil {
+			http.Redirect(w, r, "/room/join?error=Salle+introuvable", http.StatusSeeOther)
+			return
+		}
 	}
 
 	// Créer le joueur avec les infos de l'utilisateur
@@ -262,33 +266,26 @@ func (h *Handler) HandleJoinRoom(w http.ResponseWriter, r *http.Request) {
 		IsReady: false,
 	}
 
-	// Ajouter le joueur manuellement dans le slice Players
-	room.Mu.Lock()
-	
-	// Vérifier si le joueur n'est pas déjà dans la salle
-	playerExists := false
-	for _, p := range room.Players {
-		if p.UserID == user.ID {
-			playerExists = true
-			break
-		}
-	}
+	// Ajouter le joueur dans la map Players
+	room.Mutex.Lock()
 
-	if playerExists {
-		room.Mu.Unlock()
+	// Vérifier si le joueur n'est pas déjà dans la salle
+	if _, exists := room.Players[user.ID]; exists {
+		room.Mutex.Unlock()
 		http.Redirect(w, r, "/room/"+room.Code, http.StatusSeeOther)
 		return
 	}
 
 	// Vérifier que la salle n'est pas pleine (max 8 joueurs)
 	if len(room.Players) >= 8 {
-		room.Mu.Unlock()
+		room.Mutex.Unlock()
 		http.Redirect(w, r, "/room/join?error=Salle+pleine", http.StatusSeeOther)
 		return
 	}
 
-	room.Players = append(room.Players, player)
-	room.Mu.Unlock()
+	// Ajouter le joueur à la map
+	room.Players[user.ID] = player
+	room.Mutex.Unlock()
 
 	log.Printf("[ROOMS] %s a rejoint la salle %s", user.Pseudo, room.Code)
 
@@ -320,23 +317,21 @@ func (h *Handler) HandleLeaveRoom(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Récupérer la salle
+	// Récupérer la salle par code
 	manager := GetManager()
-	room, err := manager.GetRoom(req.RoomCode)
-	if err != nil || room == nil {
-		http.Error(w, "Salle introuvable", http.StatusNotFound)
-		return
-	}
-
-	// Retirer le joueur du slice Players
-	room.Mu.Lock()
-	for i, p := range room.Players {
-		if p.UserID == user.ID {
-			room.Players = append(room.Players[:i], room.Players[i+1:]...)
-			break
+	room, err := manager.GetRoomByCode(req.RoomCode)
+	if err != nil {
+		room, err = manager.GetRoom(req.RoomCode)
+		if err != nil || room == nil {
+			http.Error(w, "Salle introuvable", http.StatusNotFound)
+			return
 		}
 	}
-	room.Mu.Unlock()
+
+	// Retirer le joueur de la map Players
+	room.Mutex.Lock()
+	delete(room.Players, user.ID)
+	room.Mutex.Unlock()
 
 	log.Printf("[ROOMS] %s a quitté la salle %s", user.Pseudo, room.Code)
 
@@ -366,12 +361,15 @@ func (h *Handler) HandleRestartRoom(w http.ResponseWriter, r *http.Request) {
 	path := strings.TrimPrefix(r.URL.Path, "/api/rooms/")
 	code := strings.TrimSuffix(path, "/restart")
 
-	// Récupérer la salle
+	// Récupérer la salle par code
 	manager := GetManager()
-	room, err := manager.GetRoom(code)
-	if err != nil || room == nil {
-		http.Error(w, "Salle introuvable", http.StatusNotFound)
-		return
+	room, err := manager.GetRoomByCode(code)
+	if err != nil {
+		room, err = manager.GetRoom(code)
+		if err != nil || room == nil {
+			http.Error(w, "Salle introuvable", http.StatusNotFound)
+			return
+		}
 	}
 
 	// Vérifier que l'utilisateur est l'hôte
@@ -381,13 +379,13 @@ func (h *Handler) HandleRestartRoom(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// Redémarrer la partie (réinitialiser les scores et le statut)
-	room.Mu.Lock()
+	room.Mutex.Lock()
 	room.Status = models.RoomStatusWaiting
 	for _, player := range room.Players {
 		player.Score = 0
 		player.IsReady = false
 	}
-	room.Mu.Unlock()
+	room.Mutex.Unlock()
 
 	log.Printf("[ROOMS] Partie redémarrée dans la salle %s par %s", room.Code, user.Pseudo)
 
@@ -397,4 +395,3 @@ func (h *Handler) HandleRestartRoom(w http.ResponseWriter, r *http.Request) {
 		"message": "Partie redémarrée",
 	})
 }
-

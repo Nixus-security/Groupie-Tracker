@@ -1,0 +1,441 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>{{.Room.Name}} - Blind Test - Groupie Tracker</title>
+    <link rel="stylesheet" href="/static/style.css">
+    <link rel="stylesheet" href="/static/icons.css">
+</head>
+<body>
+    <!-- Navigation -->
+    <nav class="navbar">
+        <a href="/" class="navbar-brand">
+            <span class="icon icon-music icon-md"></span>
+            <span>Groupie Tracker</span>
+        </a>
+        
+        <ul class="navbar-nav">
+            <li><a href="/">Accueil</a></li>
+            <li><a href="/rooms">Salles</a></li>
+        </ul>
+
+        <div class="navbar-user">
+            <div class="user-info">
+                <div class="avatar">{{slice .User.Pseudo 0 1}}</div>
+                <span>{{.User.Pseudo}}</span>
+            </div>
+            <a href="/logout" class="btn btn-secondary btn-sm">Déconnexion</a>
+        </div>
+    </nav>
+
+    <!-- Page de salle -->
+    <div class="room-page">
+        <!-- Zone principale -->
+        <div class="room-main">
+            <!-- Header de la salle -->
+            <div class="room-header">
+                <div class="room-title">
+                    <h1>
+                        <span class="icon icon-headphones icon-lg"></span>
+                        {{.Room.Name}}
+                    </h1>
+                    <span class="badge badge-primary">
+                        <span class="icon icon-headphones icon-xs"></span>
+                        Blind Test
+                    </span>
+                </div>
+                
+                <div class="room-code-display" onclick="copyRoomCode('{{.Room.Code}}')" title="Cliquez pour copier">
+                    <span class="icon icon-key icon-sm"></span>
+                    <code>{{.Room.Code}}</code>
+                    <span class="icon icon-copy icon-sm copy-icon"></span>
+                </div>
+            </div>
+
+            <!-- Zone de jeu -->
+            <div id="game-container">
+                {{if eq .Room.Status "waiting"}}
+                <!-- État: En attente -->
+                <div class="card" style="text-align: center; padding: 3rem;">
+                    <div class="game-icon" style="margin-bottom: 2rem;">
+                        <span class="icon icon-headphones icon-xxl" style="filter: drop-shadow(0 0 20px var(--primary-glow));"></span>
+                    </div>
+                    <h2>En attente des joueurs...</h2>
+                    <p class="text-muted mb-lg">
+                        Partagez le code <strong style="color: var(--neon-cyan);">{{.Room.Code}}</strong> avec vos amis !
+                    </p>
+                    
+                    {{if .Player.IsHost}}
+                    <div class="mt-xl">
+                        <button class="btn btn-success btn-lg" id="start-btn" onclick="startGame()" disabled>
+                            <span class="icon icon-play icon-sm"></span>
+                            <span>Lancer la partie</span>
+                        </button>
+                        <p class="text-muted mt-md" id="start-hint">
+                            Tous les joueurs doivent être prêts pour lancer la partie
+                        </p>
+                    </div>
+                    {{else}}
+                    <div class="mt-xl">
+                        <button class="btn btn-primary btn-lg" id="ready-btn" onclick="toggleReady()">
+                            <span class="icon icon-check icon-sm"></span>
+                            <span id="ready-text">Je suis prêt !</span>
+                        </button>
+                    </div>
+                    {{end}}
+                </div>
+
+                {{else if eq .Room.Status "playing"}}
+                <!-- État: Partie en cours -->
+                <div id="round-info">
+                    <span id="round-number">Manche 1/10</span>
+                    <span id="timer">37s</span>
+                </div>
+
+                <div id="audio-player">
+                    <img src="/static/img/album-placeholder.png" alt="Album" class="track-image blur" id="track-image">
+                    <audio id="preview-audio" controls style="width: 100%; max-width: 400px; margin-top: 1rem;">
+                        Votre navigateur ne supporte pas l'audio.
+                    </audio>
+                </div>
+
+                <div id="answer-form">
+                    <input 
+                        type="text" 
+                        id="answer-input" 
+                        class="form-control"
+                        placeholder="Entrez le titre ou l'artiste..."
+                        autocomplete="off"
+                    >
+                    <button class="btn btn-primary btn-lg" id="submit-answer" onclick="submitAnswer()">
+                        <span class="icon icon-send icon-sm"></span>
+                        <span>Envoyer</span>
+                    </button>
+                </div>
+
+                <div id="results" style="display: none;">
+                    <!-- Les résultats seront affichés ici -->
+                </div>
+
+                {{else if eq .Room.Status "finished"}}
+                <!-- État: Partie terminée -->
+                <div class="game-end">
+                    <h1>🎉 Partie Terminée !</h1>
+                    
+                    <div class="winner-card" id="winner-card">
+                        <div class="trophy">
+                            <span class="icon icon-trophy icon-xxl"></span>
+                        </div>
+                        <div class="winner-name" id="winner-name">Chargement...</div>
+                        <div class="winner-score" id="winner-score"></div>
+                    </div>
+                    
+                    <div class="final-rankings" id="final-rankings">
+                        <h3>Classement Final</h3>
+                        <!-- Le classement sera affiché ici -->
+                    </div>
+                    
+                    <div class="room-actions mt-xl">
+                        {{if .Player.IsHost}}
+                        <button class="btn btn-primary btn-lg" onclick="restartGame()">
+                            <span class="icon icon-refresh icon-sm"></span>
+                            <span>Rejouer</span>
+                        </button>
+                        {{end}}
+                        <a href="/rooms" class="btn btn-secondary btn-lg">
+                            <span class="icon icon-arrow-left icon-sm"></span>
+                            <span>Retour aux salles</span>
+                        </a>
+                    </div>
+                </div>
+                {{end}}
+            </div>
+        </div>
+
+        <!-- Panel des joueurs -->
+        <div class="players-panel">
+            <h2>
+                <span class="icon icon-users icon-md"></span>
+                Joueurs ({{len .Room.Players}}/8)
+            </h2>
+            
+            <div class="players-list" id="players-list">
+                {{range $userID, $player := .Room.Players}}
+                <div class="player-item {{if $player.IsHost}}is-host{{end}} {{if eq $userID $.User.ID}}is-self{{end}}" data-user-id="{{$userID}}">
+                    <div class="player-avatar">
+                        {{slice $player.Pseudo 0 1}}
+                    </div>
+                    <div class="player-info">
+                        <div class="player-name">
+                            {{$player.Pseudo}}
+                            {{if $player.IsHost}}
+                            <span class="icon icon-crown icon-xs crown" title="Hôte"></span>
+                            {{end}}
+                        </div>
+                        <div class="player-status">
+                            {{if $player.IsReady}}
+                            <span class="text-success">Prêt</span>
+                            {{else}}
+                            <span class="text-muted">En attente</span>
+                            {{end}}
+                        </div>
+                    </div>
+                    <div class="player-ready-icon {{if $player.IsReady}}ready{{else}}not-ready{{end}}">
+                        {{if $player.IsReady}}
+                        <span class="icon icon-check icon-sm"></span>
+                        {{else}}
+                        <span class="icon icon-timer icon-sm"></span>
+                        {{end}}
+                    </div>
+                </div>
+                {{end}}
+            </div>
+
+            <!-- Scoreboard (visible pendant/après la partie) -->
+            {{if or (eq .Room.Status "playing") (eq .Room.Status "finished")}}
+            <div class="scoreboard" id="scoreboard">
+                <h3>
+                    <span class="icon icon-trophy icon-sm"></span>
+                    Scores
+                </h3>
+                <div class="scoreboard-list" id="scoreboard-list">
+                    {{range $userID, $player := .Room.Players}}
+                    <div class="score-row" data-user-id="{{$userID}}">
+                        <span class="score-rank">-</span>
+                        <span class="score-player">{{$player.Pseudo}}</span>
+                        <span class="score-value">{{$player.Score}} pts</span>
+                    </div>
+                    {{end}}
+                </div>
+            </div>
+            {{end}}
+
+            <!-- Bouton quitter -->
+            <div class="mt-lg">
+                <button class="btn btn-danger btn-block" onclick="leaveRoom()">
+                    <span class="icon icon-door icon-sm"></span>
+                    <span>Quitter la salle</span>
+                </button>
+            </div>
+        </div>
+    </div>
+
+    <!-- Toast container -->
+    <div class="toast-container" id="toastContainer"></div>
+
+    <!-- Scripts -->
+    <script src="/static/websocket.js"></script>
+    <script src="/static/blindtest.js"></script>
+    <script>
+        // Variables globales
+        const roomCode = '{{.Room.Code}}';
+        const roomId = '{{.Room.ID}}';
+        const currentUserId = '{{.User.ID}}';
+        const isHost = '{{.Player.IsHost}}';
+        let isReady = '{{.Player.IsReady}}';
+
+        // Initialisation
+        document.addEventListener('DOMContentLoaded', function() {
+            // Connexion WebSocket
+            initRoom(roomCode, currentUserId);
+            
+            // Initialiser le jeu Blind Test si partie en cours
+            {{if eq .Room.Status "playing"}}
+            initBlindTest({
+                time_per_round: '{{.Room.Config.TimePerRound}}'  
+            });
+            {{end}}
+
+            // Gestionnaire de touche Entrée pour la réponse
+            const answerInput = document.getElementById('answer-input');
+            if (answerInput) {
+                answerInput.addEventListener('keypress', function(e) {
+                    if (e.key === 'Enter') {
+                        submitAnswer();
+                    }
+                });
+            }
+
+            // Mettre à jour l'état du bouton start
+            updateStartButton();
+        });
+
+        // Copier le code de la salle
+        function copyRoomCode(code) {
+            navigator.clipboard.writeText(code).then(() => {
+                showToast('Code copié !', 'success');
+            }).catch(() => {
+                showToast('Erreur lors de la copie', 'error');
+            });
+        }
+
+        // Toggle prêt
+        function toggleReady() {
+            isReady = !isReady;
+            wsManager.setReady(isReady);
+            
+            const btn = document.getElementById('ready-btn');
+            const text = document.getElementById('ready-text');
+            
+            if (isReady) {
+                btn.classList.remove('btn-primary');
+                btn.classList.add('btn-warning');
+                text.textContent = 'Annuler';
+            } else {
+                btn.classList.remove('btn-warning');
+                btn.classList.add('btn-primary');
+                text.textContent = 'Je suis prêt !';
+            }
+        }
+
+        // Lancer la partie (hôte uniquement)
+        function startGame() {
+            if (!isHost) {
+                showToast('Seul l\'hôte peut lancer la partie', 'warning');
+                return;
+            }
+            wsManager.startGame();
+        }
+
+        // Soumettre une réponse
+        function submitAnswer() {
+            const input = document.getElementById('answer-input');
+            const answer = input.value.trim();
+            
+            if (!answer) {
+                showToast('Entrez une réponse', 'warning');
+                return;
+            }
+
+            wsManager.submitBlindTestAnswer(answer);
+            input.value = '';
+            input.disabled = true;
+            document.getElementById('submit-answer').disabled = true;
+            
+            showToast('Réponse envoyée !', 'success');
+        }
+
+        // Quitter la salle
+        function leaveRoom() {
+            if (confirm('Voulez-vous vraiment quitter la salle ?')) {
+                wsManager.leaveRoom();
+                window.location.href = '/rooms';
+            }
+        }
+
+        // Relancer la partie
+        function restartGame() {
+            fetch('/api/rooms/' + roomCode + '/restart', {
+                method: 'POST',
+                credentials: 'same-origin'
+            })
+            .then(response => response.json())
+            .then(data => {
+                if (data.success) {
+                    showToast('Partie relancée !', 'success');
+                    setTimeout(() => window.location.reload(), 1000);
+                } else {
+                    showToast(data.message || 'Erreur', 'error');
+                }
+            })
+            .catch(err => {
+                showToast('Erreur de connexion', 'error');
+            });
+        }
+
+        // Mettre à jour le bouton start
+        function updateStartButton() {
+            const startBtn = document.getElementById('start-btn');
+            const hint = document.getElementById('start-hint');
+            
+            if (!startBtn) return;
+
+            // Vérifier si tous les joueurs sont prêts
+            const playerItems = document.querySelectorAll('.player-item');
+            let allReady = true;
+            let playerCount = 0;
+
+            playerItems.forEach(item => {
+                playerCount++;
+                const readyIcon = item.querySelector('.player-ready-icon');
+                if (readyIcon && readyIcon.classList.contains('not-ready')) {
+                    // L'hôte n'a pas besoin d'être "prêt"
+                    if (!item.classList.contains('is-host')) {
+                        allReady = false;
+                    }
+                }
+            });
+
+            // Permettre le mode solo ou avec tous les joueurs prêts
+            const canStart = playerCount === 1 || allReady;
+            
+            startBtn.disabled = !canStart;
+            
+            if (hint) {
+                if (playerCount === 1) {
+                    hint.textContent = 'Mode solo disponible - Lancez quand vous voulez !';
+                } else if (canStart) {
+                    hint.textContent = 'Tous les joueurs sont prêts !';
+                } else {
+                    hint.textContent = 'Tous les joueurs doivent être prêts pour lancer la partie';
+                }
+            }
+        }
+
+        // Gestionnaires WebSocket supplémentaires
+        wsManager.on('player_ready', (data) => {
+            // Mettre à jour l'affichage du joueur
+            const playerItem = document.querySelector(`[data-user-id="${data.user_id}"]`);
+            if (playerItem) {
+                const statusEl = playerItem.querySelector('.player-status span');
+                const readyIcon = playerItem.querySelector('.player-ready-icon');
+                
+                if (data.ready) {
+                    if (statusEl) {
+                        statusEl.className = 'text-success';
+                        statusEl.textContent = 'Prêt';
+                    }
+                    if (readyIcon) {
+                        readyIcon.className = 'player-ready-icon ready';
+                        readyIcon.innerHTML = '<span class="icon icon-check icon-sm"></span>';
+                    }
+                } else {
+                    if (statusEl) {
+                        statusEl.className = 'text-muted';
+                        statusEl.textContent = 'En attente';
+                    }
+                    if (readyIcon) {
+                        readyIcon.className = 'player-ready-icon not-ready';
+                        readyIcon.innerHTML = '<span class="icon icon-timer icon-sm"></span>';
+                    }
+                }
+            }
+            
+            updateStartButton();
+        });
+
+        wsManager.on('player_joined', (data) => {
+            showToast(`${data.pseudo} a rejoint la salle`, 'info');
+            setTimeout(() => window.location.reload(), 500);
+        });
+
+        wsManager.on('player_left', (data) => {
+            showToast(`${data.pseudo} a quitté la salle`, 'warning');
+            setTimeout(() => window.location.reload(), 500);
+        });
+
+        wsManager.on('start_game', (data) => {
+            showToast('La partie commence !', 'success');
+            setTimeout(() => window.location.reload(), 1000);
+        });
+
+        wsManager.on('room_update', (data) => {
+            // Rafraîchir si le statut change
+            if (data.status && data.status !== '{{.Room.Status}}') {
+                window.location.reload();
+            }
+        });
+    </script>
+</body>
+</html>
