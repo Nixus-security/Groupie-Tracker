@@ -224,218 +224,323 @@
     <!-- Toast container -->
     <div class="toast-container" id="toastContainer"></div>
 
-    <!-- Scripts -->
-    <script src="/static/websocket.js"></script>
-    <script src="/static/blindtest.js"></script>
     <script>
-        // Variables globales
-        const roomCode = '{{.Room.Code}}';
-        const roomId = '{{.Room.ID}}';
-        const currentUserId = '{{.User.ID}}';
-        const isHost = '{{.Player.IsHost}}';
-        let isReady = '{{.Player.IsReady}}';
-
-        // Initialisation
-        document.addEventListener('DOMContentLoaded', function() {
-            // Connexion WebSocket
-            initRoom(roomCode, currentUserId);
-            
-            // Initialiser le jeu Blind Test si partie en cours
-            {{if eq .Room.Status "playing"}}
-            initBlindTest({
-                time_per_round: '{{.Room.Config.TimePerRound}}'  
-            });
-            {{end}}
-
-            // Gestionnaire de touche Entrée pour la réponse
-            const answerInput = document.getElementById('answer-input');
-            if (answerInput) {
-                answerInput.addEventListener('keypress', function(e) {
-                    if (e.key === 'Enter') {
-                        submitAnswer();
-                    }
-                });
-            }
-
-            // Mettre à jour l'état du bouton start
-            updateStartButton();
-        });
-
-        // Copier le code de la salle
-        function copyRoomCode(code) {
-            navigator.clipboard.writeText(code).then(() => {
-                showToast('Code copié !', 'success');
-            }).catch(() => {
-                showToast('Erreur lors de la copie', 'error');
-            });
+    // =========================================================================
+    // TOAST NOTIFICATIONS
+    // =========================================================================
+    function showToast(message, type, duration) {
+        type = type || 'info';
+        duration = duration || 3000;
+        
+        var container = document.querySelector('.toast-container');
+        if (!container) {
+            container = document.createElement('div');
+            container.className = 'toast-container';
+            document.body.appendChild(container);
         }
 
-        // Toggle prêt
-        function toggleReady() {
-            isReady = !isReady;
-            wsManager.setReady(isReady);
+        var toast = document.createElement('div');
+        toast.className = 'toast toast-' + type;
+        
+        var icons = { success: '✓', error: '✕', warning: '⚠', info: 'ℹ' };
+        toast.innerHTML = '<span class="toast-icon">' + (icons[type] || icons.info) + '</span>' +
+                          '<span class="toast-message">' + message + '</span>';
+
+        container.appendChild(toast);
+
+        setTimeout(function() {
+            toast.classList.add('toast-exit');
+            setTimeout(function() { toast.remove(); }, 300);
+        }, duration);
+    }
+
+    // =========================================================================
+    // WEBSOCKET MANAGER (INTÉGRÉ)
+    // =========================================================================
+    var ws = null;
+    var wsConnected = false;
+    var wsReconnectAttempts = 0;
+    var wsMaxReconnectAttempts = 5;
+
+    function connectWebSocket(roomCode) {
+        var protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
+        var wsUrl = protocol + '//' + window.location.host + '/ws/room/' + roomCode;
+        
+        console.log('🔌 Connexion WebSocket:', wsUrl);
+        
+        try {
+            ws = new WebSocket(wsUrl);
             
-            const btn = document.getElementById('ready-btn');
-            const text = document.getElementById('ready-text');
+            ws.onopen = function() {
+                console.log('✅ WebSocket connecté');
+                wsConnected = true;
+                wsReconnectAttempts = 0;
+                showToast('Connecté à la salle', 'success');
+            };
             
-            if (isReady) {
-                btn.classList.remove('btn-primary');
-                btn.classList.add('btn-warning');
-                text.textContent = 'Annuler';
-            } else {
-                btn.classList.remove('btn-warning');
-                btn.classList.add('btn-primary');
-                text.textContent = 'Je suis prêt !';
-            }
-        }
-
-        // Lancer la partie (hôte uniquement)
-        function startGame() {
-            if (!isHost) {
-                showToast('Seul l\'hôte peut lancer la partie', 'warning');
-                return;
-            }
-            wsManager.startGame();
-        }
-
-        // Soumettre une réponse
-        function submitAnswer() {
-            const input = document.getElementById('answer-input');
-            const answer = input.value.trim();
-            
-            if (!answer) {
-                showToast('Entrez une réponse', 'warning');
-                return;
-            }
-
-            wsManager.submitBlindTestAnswer(answer);
-            input.value = '';
-            input.disabled = true;
-            document.getElementById('submit-answer').disabled = true;
-            
-            showToast('Réponse envoyée !', 'success');
-        }
-
-        // Quitter la salle
-        function leaveRoom() {
-            if (confirm('Voulez-vous vraiment quitter la salle ?')) {
-                wsManager.leaveRoom();
-                window.location.href = '/rooms';
-            }
-        }
-
-        // Relancer la partie
-        function restartGame() {
-            fetch('/api/rooms/' + roomCode + '/restart', {
-                method: 'POST',
-                credentials: 'same-origin'
-            })
-            .then(response => response.json())
-            .then(data => {
-                if (data.success) {
-                    showToast('Partie relancée !', 'success');
-                    setTimeout(() => window.location.reload(), 1000);
-                } else {
-                    showToast(data.message || 'Erreur', 'error');
-                }
-            })
-            .catch(err => {
-                showToast('Erreur de connexion', 'error');
-            });
-        }
-
-        // Mettre à jour le bouton start
-        function updateStartButton() {
-            const startBtn = document.getElementById('start-btn');
-            const hint = document.getElementById('start-hint');
-            
-            if (!startBtn) return;
-
-            // Vérifier si tous les joueurs sont prêts
-            const playerItems = document.querySelectorAll('.player-item');
-            let allReady = true;
-            let playerCount = 0;
-
-            playerItems.forEach(item => {
-                playerCount++;
-                const readyIcon = item.querySelector('.player-ready-icon');
-                if (readyIcon && readyIcon.classList.contains('not-ready')) {
-                    // L'hôte n'a pas besoin d'être "prêt"
-                    if (!item.classList.contains('is-host')) {
-                        allReady = false;
-                    }
-                }
-            });
-
-            // Permettre le mode solo ou avec tous les joueurs prêts
-            const canStart = playerCount === 1 || allReady;
-            
-            startBtn.disabled = !canStart;
-            
-            if (hint) {
-                if (playerCount === 1) {
-                    hint.textContent = 'Mode solo disponible - Lancez quand vous voulez !';
-                } else if (canStart) {
-                    hint.textContent = 'Tous les joueurs sont prêts !';
-                } else {
-                    hint.textContent = 'Tous les joueurs doivent être prêts pour lancer la partie';
-                }
-            }
-        }
-
-        // Gestionnaires WebSocket supplémentaires
-        wsManager.on('player_ready', (data) => {
-            // Mettre à jour l'affichage du joueur
-            const playerItem = document.querySelector(`[data-user-id="${data.user_id}"]`);
-            if (playerItem) {
-                const statusEl = playerItem.querySelector('.player-status span');
-                const readyIcon = playerItem.querySelector('.player-ready-icon');
+            ws.onclose = function(event) {
+                console.log('🔌 WebSocket fermé:', event.code);
+                wsConnected = false;
                 
-                if (data.ready) {
-                    if (statusEl) {
-                        statusEl.className = 'text-success';
-                        statusEl.textContent = 'Prêt';
-                    }
-                    if (readyIcon) {
-                        readyIcon.className = 'player-ready-icon ready';
-                        readyIcon.innerHTML = '<span class="icon icon-check icon-sm"></span>';
-                    }
-                } else {
-                    if (statusEl) {
-                        statusEl.className = 'text-muted';
-                        statusEl.textContent = 'En attente';
-                    }
-                    if (readyIcon) {
-                        readyIcon.className = 'player-ready-icon not-ready';
-                        readyIcon.innerHTML = '<span class="icon icon-timer icon-sm"></span>';
-                    }
+                if (!event.wasClean && wsReconnectAttempts < wsMaxReconnectAttempts) {
+                    wsReconnectAttempts++;
+                    var delay = 1000 * wsReconnectAttempts;
+                    console.log('🔄 Reconnexion dans ' + delay + 'ms...');
+                    setTimeout(function() { connectWebSocket(roomCode); }, delay);
+                }
+            };
+            
+            ws.onerror = function(error) {
+                console.error('❌ Erreur WebSocket:', error);
+            };
+            
+            ws.onmessage = function(event) {
+                try {
+                    var message = JSON.parse(event.data);
+                    handleWSMessage(message);
+                } catch (e) {
+                    console.error('Erreur parsing:', e);
+                }
+            };
+        } catch (error) {
+            console.error('❌ Erreur création WebSocket:', error);
+        }
+    }
+
+    function sendWS(type, payload) {
+        if (!wsConnected || !ws) {
+            console.warn('WebSocket non connecté');
+            return false;
+        }
+        var message = { type: type, payload: payload || {} };
+        ws.send(JSON.stringify(message));
+        console.log('📤 Envoyé:', type);
+        return true;
+    }
+
+    function handleWSMessage(message) {
+        console.log('📨 Reçu:', message.type, message);
+        
+        switch(message.type) {
+            case 'player_ready':
+                onPlayerReady(message.payload);
+                break;
+            case 'player_joined':
+                showToast(message.payload.pseudo + ' a rejoint la salle', 'info');
+                addPlayerToUI(message.payload);
+                break;
+            case 'player_left':
+                showToast(message.payload.pseudo + ' a quitté la salle', 'warning');
+                removePlayerFromUI(message.payload.user_id);
+                break;
+            case 'start_game':
+                showToast('La partie commence !', 'success');
+                setTimeout(function() { window.location.reload(); }, 1500);
+                break;
+            case 'error':
+                showToast(message.error || 'Erreur', 'error');
+                break;
+        }
+    }
+
+    // =========================================================================
+    // VARIABLES GLOBALES
+    // =========================================================================
+    var roomCode = '{{.Room.Code}}';
+    var roomId = '{{.Room.ID}}';
+    var currentUserId = '{{.User.ID}}';
+    var roomStatus = '{{.Room.Status}}';
+    var isHost = '{{.Player.IsHost}}' === 'true';
+    var isReady = '{{.Player.IsReady}}' === 'true';
+
+    // =========================================================================
+    // FONCTIONS DE LA SALLE
+    // =========================================================================
+    
+    function copyRoomCode(code) {
+        navigator.clipboard.writeText(code).then(function() {
+            showToast('Code copié !', 'success');
+        }).catch(function() {
+            showToast('Erreur lors de la copie', 'error');
+        });
+    }
+
+    function toggleReady() {
+        isReady = !isReady;
+        sendWS('player_ready', { ready: isReady });
+        
+        var btn = document.getElementById('ready-btn');
+        var text = document.getElementById('ready-text');
+        
+        if (isReady) {
+            btn.classList.remove('btn-primary');
+            btn.classList.add('btn-warning');
+            text.textContent = 'Annuler';
+        } else {
+            btn.classList.remove('btn-warning');
+            btn.classList.add('btn-primary');
+            text.textContent = 'Je suis prêt !';
+        }
+    }
+
+    function startGame() {
+        if (!isHost) {
+            showToast('Seul l\'hôte peut lancer la partie', 'warning');
+            return;
+        }
+        sendWS('start_game', {});
+    }
+
+    function submitAnswer() {
+        var input = document.getElementById('answer-input');
+        var answer = input.value.trim();
+        
+        if (!answer) {
+            showToast('Entrez une réponse', 'warning');
+            return;
+        }
+
+        sendWS('bt_answer', { answer: answer });
+        input.value = '';
+        input.disabled = true;
+        document.getElementById('submit-answer').disabled = true;
+        showToast('Réponse envoyée !', 'success');
+    }
+
+    function leaveRoom() {
+        if (confirm('Voulez-vous vraiment quitter la salle ?')) {
+            sendWS('leave_room', {});
+            window.location.href = '/rooms';
+        }
+    }
+
+    function restartGame() {
+        fetch('/api/rooms/' + roomCode + '/restart', {
+            method: 'POST',
+            credentials: 'same-origin'
+        })
+        .then(function(response) { return response.json(); })
+        .then(function(data) {
+            if (data.success) {
+                showToast('Partie relancée !', 'success');
+                setTimeout(function() { window.location.reload(); }, 1000);
+            } else {
+                showToast(data.message || 'Erreur', 'error');
+            }
+        })
+        .catch(function(err) {
+            showToast('Erreur de connexion', 'error');
+        });
+    }
+
+    function updateStartButton() {
+        var startBtn = document.getElementById('start-btn');
+        var hint = document.getElementById('start-hint');
+        
+        if (!startBtn) return;
+
+        var playerItems = document.querySelectorAll('.player-item');
+        var allReady = true;
+        var playerCount = 0;
+
+        playerItems.forEach(function(item) {
+            playerCount++;
+            var readyIcon = item.querySelector('.player-ready-icon');
+            if (readyIcon && readyIcon.classList.contains('not-ready')) {
+                if (!item.classList.contains('is-host')) {
+                    allReady = false;
                 }
             }
-            
-            updateStartButton();
         });
 
-        wsManager.on('player_joined', (data) => {
-            showToast(`${data.pseudo} a rejoint la salle`, 'info');
-            setTimeout(() => window.location.reload(), 500);
-        });
-
-        wsManager.on('player_left', (data) => {
-            showToast(`${data.pseudo} a quitté la salle`, 'warning');
-            setTimeout(() => window.location.reload(), 500);
-        });
-
-        wsManager.on('start_game', (data) => {
-            showToast('La partie commence !', 'success');
-            setTimeout(() => window.location.reload(), 1000);
-        });
-
-        wsManager.on('room_update', (data) => {
-            // Rafraîchir si le statut change
-            if (data.status && data.status !== '{{.Room.Status}}') {
-                window.location.reload();
+        var canStart = playerCount === 1 || allReady;
+        startBtn.disabled = !canStart;
+        
+        if (hint) {
+            if (playerCount === 1) {
+                hint.textContent = 'Mode solo disponible - Lancez quand vous voulez !';
+            } else if (canStart) {
+                hint.textContent = 'Tous les joueurs sont prêts !';
+            } else {
+                hint.textContent = 'Tous les joueurs doivent être prêts pour lancer la partie';
             }
-        });
+        }
+    }
+
+    function onPlayerReady(data) {
+        var playerItem = document.querySelector('[data-user-id="' + data.user_id + '"]');
+        if (playerItem) {
+            var statusEl = playerItem.querySelector('.player-status span');
+            var readyIcon = playerItem.querySelector('.player-ready-icon');
+            
+            if (data.ready) {
+                if (statusEl) {
+                    statusEl.className = 'text-success';
+                    statusEl.textContent = 'Prêt';
+                }
+                if (readyIcon) {
+                    readyIcon.className = 'player-ready-icon ready';
+                    readyIcon.innerHTML = '<span class="icon icon-check icon-sm"></span>';
+                }
+            } else {
+                if (statusEl) {
+                    statusEl.className = 'text-muted';
+                    statusEl.textContent = 'En attente';
+                }
+                if (readyIcon) {
+                    readyIcon.className = 'player-ready-icon not-ready';
+                    readyIcon.innerHTML = '<span class="icon icon-timer icon-sm"></span>';
+                }
+            }
+        }
+        updateStartButton();
+    }
+
+    function addPlayerToUI(player) {
+        var list = document.getElementById('players-list');
+        if (!list) return;
+        
+        if (document.querySelector('[data-user-id="' + player.user_id + '"]')) return;
+        
+        var div = document.createElement('div');
+        div.className = 'player-item';
+        div.dataset.userId = player.user_id;
+        div.innerHTML = '<div class="player-avatar">' + player.pseudo.charAt(0) + '</div>' +
+            '<div class="player-info"><div class="player-name">' + player.pseudo + '</div>' +
+            '<div class="player-status"><span class="text-muted">En attente</span></div></div>' +
+            '<div class="player-ready-icon not-ready"><span class="icon icon-timer icon-sm"></span></div>';
+        list.appendChild(div);
+        updateStartButton();
+    }
+
+    function removePlayerFromUI(userId) {
+        var el = document.querySelector('[data-user-id="' + userId + '"]');
+        if (el) el.remove();
+        updateStartButton();
+    }
+
+    // =========================================================================
+    // INITIALISATION
+    // =========================================================================
+    document.addEventListener('DOMContentLoaded', function() {
+        console.log('🎮 Initialisation salle:', roomCode);
+        
+        // Connexion WebSocket
+        connectWebSocket(roomCode);
+        
+        // Mettre à jour le bouton start
+        updateStartButton();
+        
+        // Gestionnaire touche Entrée
+        var answerInput = document.getElementById('answer-input');
+        if (answerInput) {
+            answerInput.addEventListener('keypress', function(e) {
+                if (e.key === 'Enter') {
+                    submitAnswer();
+                }
+            });
+        }
+    });
     </script>
 </body>
 </html>

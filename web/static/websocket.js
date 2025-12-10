@@ -27,7 +27,8 @@ class WebSocketManager {
         this.userId = userId;
 
         const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
-        const wsUrl = `${protocol}//${window.location.host}/ws?room=${roomCode}`;
+        // URL corrigée pour correspondre à la route Go: /ws/room/{code}
+        const wsUrl = `${protocol}//${window.location.host}/ws/room/${roomCode}`;
 
         console.log('🔌 Connexion WebSocket:', wsUrl);
 
