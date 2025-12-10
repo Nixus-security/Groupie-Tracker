@@ -440,20 +440,24 @@
         if (!startBtn) return;
 
         var playerItems = document.querySelectorAll('.player-item');
-        var allReady = true;
-        var playerCount = 0;
+        var playerCount = playerItems.length;
+        var nonHostNotReady = 0;
 
         playerItems.forEach(function(item) {
-            playerCount++;
-            var readyIcon = item.querySelector('.player-ready-icon');
-            if (readyIcon && readyIcon.classList.contains('not-ready')) {
-                if (!item.classList.contains('is-host')) {
-                    allReady = false;
+            // Compter les joueurs NON-hôtes qui ne sont PAS prêts
+            if (!item.classList.contains('is-host')) {
+                var readyIcon = item.querySelector('.player-ready-icon');
+                if (readyIcon && readyIcon.classList.contains('not-ready')) {
+                    nonHostNotReady++;
                 }
             }
         });
 
-        var canStart = playerCount === 1 || allReady;
+        // Mode solo (1 joueur) OU tous les non-hôtes sont prêts
+        var canStart = (playerCount === 1) || (nonHostNotReady === 0);
+        
+        console.log('updateStartButton: players=' + playerCount + ', nonHostNotReady=' + nonHostNotReady + ', canStart=' + canStart);
+        
         startBtn.disabled = !canStart;
         
         if (hint) {
@@ -462,7 +466,7 @@
             } else if (canStart) {
                 hint.textContent = 'Tous les joueurs sont prêts !';
             } else {
-                hint.textContent = 'Tous les joueurs doivent être prêts pour lancer la partie';
+                hint.textContent = 'En attente de ' + nonHostNotReady + ' joueur(s)...';
             }
         }
     }

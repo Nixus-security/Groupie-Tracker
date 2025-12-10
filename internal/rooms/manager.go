@@ -111,7 +111,7 @@ func (m *Manager) CreateRoom(roomName string, hostID int64, hostPseudo string, g
 				Pseudo:    hostPseudo,
 				Score:     0,
 				IsHost:    true,
-				IsReady:   false,
+				IsReady:   true,
 				Connected: true,
 			},
 		},
