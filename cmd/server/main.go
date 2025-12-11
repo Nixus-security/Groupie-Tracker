@@ -55,19 +55,12 @@ func main() {
 	defer database.Close()
 	log.Println("[OK] Base de données initialisée")
 
-	// Initialiser le client Spotify si les credentials sont fournis
-	if config.SpotifyClientID != "" && config.SpotifySecret != "" {
-		spotifyClient := spotify.NewClient(spotify.Config{
-			ClientID:     config.SpotifyClientID,
-			ClientSecret: config.SpotifySecret,
-		})
-		if err := spotifyClient.Authenticate(); err != nil {
-			log.Printf("[WARN] Erreur auth Spotify: %v", err)
-		} else {
-			log.Println("[OK] Client Spotify authentifié")
-		}
+	// Initialiser le client Deezer (pas besoin de credentials)
+	spotifyClient := spotify.NewClient(spotify.Config{})
+	if err := spotifyClient.Authenticate(); err != nil {
+    log.Printf("[WARN] Erreur init Deezer: %v", err)
 	} else {
-		log.Println("[WARN] Credentials Spotify non configurés - Blind Test limité")
+    log.Println("[OK] Client Deezer initialisé")
 	}
 
 	// Initialiser les managers

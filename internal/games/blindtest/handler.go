@@ -17,8 +17,8 @@ type Handler struct {
 	gameManager *GameManager
 	roomManager *rooms.Manager
 	hub         *websocket.Hub
-	timers      map[string]*time.Timer // roomID -> timer
-	timerMutex  sync.Mutex
+	stopTimers  map[string]chan bool
+	mutex       sync.Mutex
 }
 
 var (
@@ -33,14 +33,13 @@ func GetHandler() *Handler {
 			gameManager: GetGameManager(),
 			roomManager: rooms.GetManager(),
 			hub:         websocket.GetHub(),
-			timers:      make(map[string]*time.Timer),
+			stopTimers:  make(map[string]chan bool),
 		}
 	})
 	return handlerInstance
 }
 
 // HandleMessage traite les messages WebSocket du Blind Test
-// Cette fonction est appelée par le handler WebSocket principal
 func (h *Handler) HandleMessage(client *websocket.Client, msg *models.WSMessage) {
 	switch msg.Type {
 	case models.WSTypeBTAnswer:
@@ -50,7 +49,7 @@ func (h *Handler) HandleMessage(client *websocket.Client, msg *models.WSMessage)
 	}
 }
 
-// StartGame démarre une partie de Blind Test (appelé par le handler WebSocket principal)
+// StartGame démarre une partie de Blind Test
 func (h *Handler) StartGame(roomCode string, genre string, rounds int) error {
 	room, err := h.roomManager.GetRoomByCode(roomCode)
 	if err != nil {
@@ -66,7 +65,12 @@ func (h *Handler) StartGame(roomCode string, genre string, rounds int) error {
 		return err
 	}
 
-	log.Printf("[BlindTest] Partie démarrée dans la salle %s (genre: %s, manches: %d)", roomCode, genre, rounds)
+	log.Printf("[BlindTest] ✅ Partie démarrée dans la salle %s (genre: %s, manches: %d)", roomCode, genre, rounds)
+
+	// Créer le canal pour stopper le timer
+	h.mutex.Lock()
+	h.stopTimers[room.ID] = make(chan bool, 1)
+	h.mutex.Unlock()
 
 	// Lancer la première manche après un court délai
 	go func() {
@@ -81,6 +85,7 @@ func (h *Handler) StartGame(roomCode string, genre string, rounds int) error {
 func (h *Handler) startNextRound(roomID, roomCode string) {
 	roundInfo, err := h.gameManager.NextRound(roomID)
 	if err != nil {
+		log.Printf("[BlindTest] ❌ Erreur NextRound: %v", err)
 		h.hub.Broadcast(roomCode, &models.WSMessage{
 			Type:  models.WSTypeError,
 			Error: err.Error(),
@@ -90,17 +95,25 @@ func (h *Handler) startNextRound(roomID, roomCode string) {
 
 	// Jeu terminé ?
 	if roundInfo == nil {
+		log.Printf("[BlindTest] 🏁 Jeu terminé pour salle %s", roomCode)
 		h.endGame(roomID, roomCode)
 		return
 	}
 
-	log.Printf("[BlindTest] Manche %d/%d - URL: %s", roundInfo.Round, roundInfo.Total, roundInfo.PreviewURL)
+	log.Printf("[BlindTest] 🎵 Manche %d/%d - Preview: %s", roundInfo.Round, roundInfo.Total, roundInfo.PreviewURL)
 
 	// Envoyer les infos de la manche à tous les joueurs
 	h.hub.Broadcast(roomCode, &models.WSMessage{
 		Type:    models.WSTypeBTNewRound,
 		Payload: roundInfo,
 	})
+
+	// Recréer le canal stop pour cette manche
+	h.mutex.Lock()
+	if _, exists := h.stopTimers[roomID]; !exists {
+		h.stopTimers[roomID] = make(chan bool, 1)
+	}
+	h.mutex.Unlock()
 
 	// Démarrer le timer
 	go h.runRoundTimer(roomID, roomCode, roundInfo.Duration)
@@ -110,18 +123,39 @@ func (h *Handler) startNextRound(roomID, roomCode string) {
 func (h *Handler) runRoundTimer(roomID, roomCode string, duration int) {
 	state := h.gameManager.GetGameState(roomID)
 	if state == nil {
+		log.Printf("[BlindTest] ❌ État du jeu non trouvé pour %s", roomID)
 		return
 	}
 
-	ticker := time.NewTicker(1 * time.Second)
-	defer ticker.Stop()
+	h.mutex.Lock()
+	stopChan := h.stopTimers[roomID]
+	h.mutex.Unlock()
+
+	if stopChan == nil {
+		log.Printf("[BlindTest] ❌ Stop channel non trouvé")
+		return
+	}
+
+	log.Printf("[BlindTest] ⏱️ Timer démarré: %d secondes", duration)
 
 	for i := duration; i >= 0; i-- {
+		// Vérifier si on doit arrêter
+		select {
+		case <-stopChan:
+			log.Printf("[BlindTest] ⏹️ Timer interrompu")
+			// Recréer le canal pour la prochaine manche
+			h.mutex.Lock()
+			h.stopTimers[roomID] = make(chan bool, 1)
+			h.mutex.Unlock()
+			return
+		default:
+		}
+
 		state.Mutex.Lock()
 		state.TimeLeft = i
 		state.Mutex.Unlock()
 
-		// Envoyer le temps restant toutes les secondes
+		// Envoyer le temps restant
 		h.hub.Broadcast(roomCode, &models.WSMessage{
 			Type: "time_update",
 			Payload: map[string]int{
@@ -130,22 +164,23 @@ func (h *Handler) runRoundTimer(roomID, roomCode string, duration int) {
 		})
 
 		if i > 0 {
-			<-ticker.C
+			time.Sleep(1 * time.Second)
 		}
 
 		// Vérifier si le jeu existe toujours
 		if h.gameManager.GetGameState(roomID) == nil {
+			log.Printf("[BlindTest] Jeu terminé pendant le timer")
 			return
 		}
 	}
 
-	// Temps écoulé - révéler la réponse
+	// Temps écoulé
+	log.Printf("[BlindTest] ⏰ Temps écoulé pour salle %s", roomCode)
 	h.revealAndContinue(roomID, roomCode)
 }
 
 // handleAnswer traite une réponse d'un joueur
 func (h *Handler) handleAnswer(client *websocket.Client, msg *models.WSMessage) {
-	// Parser le payload
 	payloadBytes, err := json.Marshal(msg.Payload)
 	if err != nil {
 		client.SendError("Payload invalide")
@@ -160,7 +195,8 @@ func (h *Handler) handleAnswer(client *websocket.Client, msg *models.WSMessage) 
 		return
 	}
 
-	// Récupérer la salle
+	log.Printf("[BlindTest] 📝 Réponse de %s: %s", client.Pseudo, answer.Answer)
+
 	room, err := h.roomManager.GetRoomByCode(client.RoomCode)
 	if err != nil {
 		room, err = h.roomManager.GetRoom(client.RoomCode)
@@ -170,7 +206,6 @@ func (h *Handler) handleAnswer(client *websocket.Client, msg *models.WSMessage) 
 		}
 	}
 
-	// Soumettre la réponse
 	result, err := h.gameManager.SubmitAnswer(room.ID, client.UserID, answer.Answer)
 	if err != nil {
 		client.SendError(err.Error())
@@ -183,8 +218,9 @@ func (h *Handler) handleAnswer(client *websocket.Client, msg *models.WSMessage) 
 		Payload: result,
 	})
 
-	// Si la réponse est correcte, notifier tout le monde
 	if result.IsCorrect && !result.AlreadyAnswered {
+		log.Printf("[BlindTest] ✅ Bonne réponse de %s ! +%d points", client.Pseudo, result.Points)
+		
 		h.hub.Broadcast(client.RoomCode, &models.WSMessage{
 			Type: "player_found",
 			Payload: map[string]interface{}{
@@ -194,9 +230,53 @@ func (h *Handler) handleAnswer(client *websocket.Client, msg *models.WSMessage) 
 			},
 		})
 
-		// Mettre à jour les scores
 		h.broadcastScores(room.ID, client.RoomCode)
+
+		// Vérifier si tous les joueurs ont trouvé
+		if h.allPlayersAnsweredCorrectly(room.ID) {
+			log.Printf("[BlindTest] 🎉 Tous les joueurs ont trouvé !")
+			
+			h.mutex.Lock()
+			if stopChan, exists := h.stopTimers[room.ID]; exists {
+				select {
+				case stopChan <- true:
+				default:
+				}
+			}
+			h.mutex.Unlock()
+
+			go func() {
+				time.Sleep(1 * time.Second)
+				h.revealAndContinue(room.ID, client.RoomCode)
+			}()
+		}
+	} else if !result.IsCorrect {
+		log.Printf("[BlindTest] ❌ Mauvaise réponse de %s", client.Pseudo)
 	}
+}
+
+// allPlayersAnsweredCorrectly vérifie si tous les joueurs ont répondu correctement
+func (h *Handler) allPlayersAnsweredCorrectly(roomID string) bool {
+	state := h.gameManager.GetGameState(roomID)
+	if state == nil {
+		return false
+	}
+
+	room, err := h.roomManager.GetRoom(roomID)
+	if err != nil {
+		return false
+	}
+
+	room.Mutex.RLock()
+	playerCount := len(room.Players)
+	room.Mutex.RUnlock()
+
+	state.Mutex.RLock()
+	answeredCount := len(state.HasAnswered)
+	state.Mutex.RUnlock()
+
+	// Tous les joueurs ont répondu (correctement ou non, mais le timer s'arrête quand tous ont tenté)
+	return answeredCount >= playerCount && playerCount > 0
 }
 
 // broadcastScores envoie les scores à tous les joueurs
@@ -210,31 +290,38 @@ func (h *Handler) broadcastScores(roomID, roomCode string) {
 
 // revealAndContinue révèle la réponse et passe à la manche suivante
 func (h *Handler) revealAndContinue(roomID, roomCode string) {
-	// Révéler la réponse
 	revealInfo := h.gameManager.RevealAnswer(roomID)
 	if revealInfo != nil {
+		log.Printf("[BlindTest] 🔓 Révélation: %s - %s", revealInfo.TrackName, revealInfo.ArtistName)
 		h.hub.Broadcast(roomCode, &models.WSMessage{
 			Type:    "bt_reveal",
 			Payload: revealInfo,
 		})
 	}
 
-	// Envoyer les scores actuels
 	h.broadcastScores(roomID, roomCode)
 
 	// Attendre avant la prochaine manche
-	time.Sleep(5 * time.Second)
+	time.Sleep(4 * time.Second)
 
-	// Vérifier si le jeu est terminé
 	if h.gameManager.IsGameOver(roomID) {
+		log.Printf("[BlindTest] 🏁 Partie terminée pour salle %s", roomCode)
 		h.endGame(roomID, roomCode)
 	} else {
+		log.Printf("[BlindTest] ➡️ Passage à la manche suivante")
 		h.startNextRound(roomID, roomCode)
 	}
 }
 
 // endGame termine la partie
 func (h *Handler) endGame(roomID, roomCode string) {
+	h.mutex.Lock()
+	if stopChan, exists := h.stopTimers[roomID]; exists {
+		close(stopChan)
+		delete(h.stopTimers, roomID)
+	}
+	h.mutex.Unlock()
+
 	result := h.gameManager.EndGame(roomID)
 	if result == nil {
 		return
@@ -245,5 +332,5 @@ func (h *Handler) endGame(roomID, roomCode string) {
 		Payload: result,
 	})
 
-	log.Printf("[BlindTest] Partie terminée - Gagnant: %s", result.Winner)
+	log.Printf("[BlindTest] 🏆 Partie terminée - Gagnant: %s", result.Winner)
 }
