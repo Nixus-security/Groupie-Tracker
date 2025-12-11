@@ -22,14 +22,19 @@ var upgrader = websocket.Upgrader{
 	},
 }
 
+// BlindTestStarter interface pour démarrer une partie
+type BlindTestStarter interface {
+	StartGame(roomCode string, genre string, rounds int) error
+	HandleMessage(client *Client, msg *models.WSMessage)
+}
+
 // Handler gère les connexions WebSocket
 type Handler struct {
 	hub         *Hub
 	roomManager *rooms.Manager
 	
-	// Handlers de jeu (injectés)
-	blindTestHandler func(*Client, *models.WSMessage)
-	petitBacHandler  func(*Client, *models.WSMessage)
+	// Handler Blind Test
+	blindTestHandler BlindTestStarter
 }
 
 // NewHandler crée un nouveau handler WebSocket
@@ -41,13 +46,9 @@ func NewHandler() *Handler {
 }
 
 // SetBlindTestHandler définit le handler Blind Test
-func (h *Handler) SetBlindTestHandler(handler func(*Client, *models.WSMessage)) {
+func (h *Handler) SetBlindTestHandler(handler BlindTestStarter) {
 	h.blindTestHandler = handler
-}
-
-// SetPetitBacHandler définit le handler Petit Bac
-func (h *Handler) SetPetitBacHandler(handler func(*Client, *models.WSMessage)) {
-	h.petitBacHandler = handler
+	log.Println("[WebSocket] Handler Blind Test configuré")
 }
 
 // HandleWebSocket gère les nouvelles connexions WebSocket
@@ -149,22 +150,18 @@ func (h *Handler) handleMessage(client *Client, msg *models.WSMessage) {
 	case models.WSTypeLeaveRoom:
 		h.handleLeaveRoom(client, room)
 	case models.WSTypeStartGame:
-		h.handleStartGame(client, room)
+		h.handleStartGame(client, room, msg)
 
 	// Messages Blind Test
 	case models.WSTypeBTAnswer:
 		if h.blindTestHandler != nil {
-			h.blindTestHandler(client, msg)
-		}
-
-	// Messages Petit Bac
-	case models.WSTypePBAnswer, models.WSTypePBVote, models.WSTypePBStopRound:
-		if h.petitBacHandler != nil {
-			h.petitBacHandler(client, msg)
+			h.blindTestHandler.HandleMessage(client, msg)
+		} else {
+			client.SendError("Handler Blind Test non configuré")
 		}
 
 	default:
-		client.SendError("Type de message inconnu: " + string(msg.Type))
+		log.Printf("[WebSocket] Message non géré: %s", msg.Type)
 	}
 }
 
@@ -227,7 +224,7 @@ func (h *Handler) handleLeaveRoom(client *Client, room *models.Room) {
 }
 
 // handleStartGame gère le démarrage d'une partie
-func (h *Handler) handleStartGame(client *Client, room *models.Room) {
+func (h *Handler) handleStartGame(client *Client, room *models.Room, msg *models.WSMessage) {
 	// Vérifier que c'est l'hôte
 	if room.HostID != client.UserID {
 		client.SendError("Seul l'hôte peut démarrer la partie")
@@ -240,21 +237,48 @@ func (h *Handler) handleStartGame(client *Client, room *models.Room) {
 		return
 	}
 
-	// Démarrer la partie (la méthode StartGame du manager ne prend qu'un argument: roomID)
-	err := h.roomManager.StartGame(room.ID)
-	if err != nil {
-		client.SendError(err.Error())
-		return
-	}
+	// Démarrer le jeu selon le type
+	switch room.GameType {
+	case models.GameTypeBlindTest:
+		if h.blindTestHandler == nil {
+			client.SendError("Handler Blind Test non configuré")
+			return
+		}
 
-	// Notifier tous les joueurs
-	h.hub.Broadcast(room.Code, &models.WSMessage{
-		Type: models.WSTypeStartGame,
-		Payload: map[string]interface{}{
-			"game_type": room.GameType,
-			"config":    room.Config,
-		},
-	})
+		// Récupérer la config
+		genre := room.Config.Playlist
+		if genre == "" {
+			genre = "Pop"
+		}
+		rounds := 10
+
+		// Démarrer le jeu via le handler
+		err := h.blindTestHandler.StartGame(room.Code, genre, rounds)
+		if err != nil {
+			client.SendError("Impossible de démarrer: " + err.Error())
+			return
+		}
+
+		// Mettre à jour le statut de la salle
+		h.roomManager.StartGame(room.ID)
+
+		// Notifier tous les joueurs
+		h.hub.Broadcast(room.Code, &models.WSMessage{
+			Type: models.WSTypeStartGame,
+			Payload: map[string]interface{}{
+				"game_type": "blindtest",
+				"genre":     genre,
+				"rounds":    rounds,
+			},
+		})
+
+	case models.GameTypePetitBac:
+		// TODO: Implémenter Petit Bac
+		client.SendError("Petit Bac non encore implémenté")
+
+	default:
+		client.SendError("Type de jeu inconnu")
+	}
 }
 
 // sendRoomState envoie l'état actuel de la salle à un client

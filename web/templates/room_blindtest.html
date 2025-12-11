@@ -6,6 +6,196 @@
     <title>{{.Room.Name}} - Blind Test - Groupie Tracker</title>
     <link rel="stylesheet" href="/static/style.css">
     <link rel="stylesheet" href="/static/icons.css">
+    <style>
+        /* Styles spécifiques au Blind Test */
+        #round-info {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            background: var(--card-bg);
+            border: 1px solid var(--border-color);
+            border-radius: var(--radius-lg);
+            padding: 1rem 2rem;
+            margin-bottom: 2rem;
+        }
+        
+        #round-number {
+            font-size: 1.25rem;
+            font-weight: 600;
+        }
+        
+        #timer {
+            font-size: 2rem;
+            font-weight: 700;
+            color: var(--neon-cyan);
+            font-family: 'Monaco', monospace;
+        }
+        
+        #timer.warning {
+            color: var(--neon-orange);
+            animation: pulse 0.5s ease-in-out infinite;
+        }
+        
+        #timer.danger {
+            color: var(--neon-pink);
+            animation: pulse 0.3s ease-in-out infinite;
+        }
+        
+        @keyframes pulse {
+            0%, 100% { opacity: 1; }
+            50% { opacity: 0.5; }
+        }
+        
+        #audio-player {
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            margin: 2rem 0;
+        }
+        
+        .track-image {
+            width: 200px;
+            height: 200px;
+            border-radius: var(--radius-lg);
+            object-fit: cover;
+            margin-bottom: 1rem;
+            transition: filter 0.5s ease;
+        }
+        
+        .track-image.blur {
+            filter: blur(20px) brightness(0.5);
+        }
+        
+        .track-image.revealed {
+            filter: none;
+        }
+        
+        #answer-form {
+            display: flex;
+            gap: 1rem;
+            max-width: 500px;
+            margin: 2rem auto;
+        }
+        
+        #answer-form input {
+            flex: 1;
+        }
+        
+        #answer-form.disabled input,
+        #answer-form.disabled button {
+            opacity: 0.5;
+            pointer-events: none;
+        }
+        
+        .answer-feedback {
+            text-align: center;
+            padding: 1rem;
+            border-radius: var(--radius-md);
+            margin: 1rem 0;
+            font-weight: 600;
+        }
+        
+        .answer-feedback.correct {
+            background: rgba(0, 255, 136, 0.1);
+            border: 1px solid var(--neon-green);
+            color: var(--neon-green);
+        }
+        
+        .answer-feedback.wrong {
+            background: rgba(255, 107, 107, 0.1);
+            border: 1px solid var(--neon-pink);
+            color: var(--neon-pink);
+        }
+        
+        .reveal-card {
+            background: var(--card-bg);
+            border: 1px solid var(--border-color);
+            border-radius: var(--radius-lg);
+            padding: 2rem;
+            text-align: center;
+            margin: 2rem 0;
+        }
+        
+        .reveal-card img {
+            width: 150px;
+            height: 150px;
+            border-radius: var(--radius-md);
+            margin-bottom: 1rem;
+        }
+        
+        .reveal-card h3 {
+            color: var(--neon-cyan);
+            margin-bottom: 0.5rem;
+        }
+        
+        .reveal-card p {
+            color: var(--text-muted);
+        }
+        
+        .player-found-alert {
+            background: rgba(0, 255, 136, 0.1);
+            border: 1px solid var(--neon-green);
+            border-radius: var(--radius-md);
+            padding: 1rem;
+            margin: 1rem 0;
+            text-align: center;
+        }
+        
+        .score-row {
+            display: flex;
+            justify-content: space-between;
+            padding: 0.5rem;
+            border-bottom: 1px solid var(--border-color);
+        }
+        
+        .score-row:last-child {
+            border-bottom: none;
+        }
+        
+        .score-rank {
+            width: 30px;
+            color: var(--text-muted);
+        }
+        
+        .score-player {
+            flex: 1;
+        }
+        
+        .score-value {
+            color: var(--neon-cyan);
+            font-weight: 600;
+        }
+        
+        .game-end {
+            text-align: center;
+            padding: 2rem;
+        }
+        
+        .winner-card {
+            background: linear-gradient(135deg, rgba(255, 215, 0, 0.1), rgba(255, 165, 0, 0.1));
+            border: 2px solid gold;
+            border-radius: var(--radius-lg);
+            padding: 2rem;
+            margin: 2rem auto;
+            max-width: 400px;
+        }
+        
+        .trophy {
+            font-size: 4rem;
+            margin-bottom: 1rem;
+        }
+        
+        .winner-name {
+            font-size: 1.5rem;
+            font-weight: 700;
+            color: gold;
+        }
+        
+        .winner-score {
+            color: var(--text-muted);
+            margin-top: 0.5rem;
+        }
+    </style>
 </head>
 <body>
     <!-- Navigation -->
@@ -55,9 +245,8 @@
 
             <!-- Zone de jeu -->
             <div id="game-container">
-                {{if eq .Room.Status "waiting"}}
                 <!-- État: En attente -->
-                <div class="card" style="text-align: center; padding: 3rem;">
+                <div id="waiting-state" class="card" style="text-align: center; padding: 3rem;">
                     <div class="game-icon" style="margin-bottom: 2rem;">
                         <span class="icon icon-headphones icon-xxl" style="filter: drop-shadow(0 0 20px var(--primary-glow));"></span>
                     </div>
@@ -86,54 +275,52 @@
                     {{end}}
                 </div>
 
-                {{else if eq .Room.Status "playing"}}
                 <!-- État: Partie en cours -->
-                <div id="round-info">
-                    <span id="round-number">Manche 1/10</span>
-                    <span id="timer">37s</span>
+                <div id="playing-state" style="display: none;">
+                    <div id="round-info">
+                        <span id="round-number">Manche 1/10</span>
+                        <span id="timer">37s</span>
+                    </div>
+
+                    <div id="audio-player">
+                        <img src="/static/img/album-placeholder.png" alt="Album" class="track-image blur" id="track-image">
+                        <audio id="preview-audio" controls style="width: 100%; max-width: 400px; margin-top: 1rem;">
+                            Votre navigateur ne supporte pas l'audio.
+                        </audio>
+                    </div>
+
+                    <div id="answer-form">
+                        <input 
+                            type="text" 
+                            id="answer-input" 
+                            class="form-control"
+                            placeholder="Entrez le titre ou l'artiste..."
+                            autocomplete="off"
+                        >
+                        <button class="btn btn-primary btn-lg" id="submit-answer" onclick="submitAnswer()">
+                            <span class="icon icon-send icon-sm"></span>
+                            <span>Envoyer</span>
+                        </button>
+                    </div>
+
+                    <div id="answer-feedback" style="display: none;"></div>
+                    <div id="player-found-alerts"></div>
+                    <div id="reveal-section" style="display: none;"></div>
                 </div>
 
-                <div id="audio-player">
-                    <img src="/static/img/album-placeholder.png" alt="Album" class="track-image blur" id="track-image">
-                    <audio id="preview-audio" controls style="width: 100%; max-width: 400px; margin-top: 1rem;">
-                        Votre navigateur ne supporte pas l'audio.
-                    </audio>
-                </div>
-
-                <div id="answer-form">
-                    <input 
-                        type="text" 
-                        id="answer-input" 
-                        class="form-control"
-                        placeholder="Entrez le titre ou l'artiste..."
-                        autocomplete="off"
-                    >
-                    <button class="btn btn-primary btn-lg" id="submit-answer" onclick="submitAnswer()">
-                        <span class="icon icon-send icon-sm"></span>
-                        <span>Envoyer</span>
-                    </button>
-                </div>
-
-                <div id="results" style="display: none;">
-                    <!-- Les résultats seront affichés ici -->
-                </div>
-
-                {{else if eq .Room.Status "finished"}}
                 <!-- État: Partie terminée -->
-                <div class="game-end">
+                <div id="finished-state" class="game-end" style="display: none;">
                     <h1>🎉 Partie Terminée !</h1>
                     
                     <div class="winner-card" id="winner-card">
-                        <div class="trophy">
-                            <span class="icon icon-trophy icon-xxl"></span>
-                        </div>
+                        <div class="trophy">🏆</div>
                         <div class="winner-name" id="winner-name">Chargement...</div>
                         <div class="winner-score" id="winner-score"></div>
                     </div>
                     
                     <div class="final-rankings" id="final-rankings">
                         <h3>Classement Final</h3>
-                        <!-- Le classement sera affiché ici -->
+                        <div id="final-scores"></div>
                     </div>
                     
                     <div class="room-actions mt-xl">
@@ -149,7 +336,6 @@
                         </a>
                     </div>
                 </div>
-                {{end}}
             </div>
         </div>
 
@@ -157,7 +343,7 @@
         <div class="players-panel">
             <h2>
                 <span class="icon icon-users icon-md"></span>
-                Joueurs ({{len .Room.Players}}/8)
+                Joueurs (<span id="player-count">{{len .Room.Players}}</span>/8)
             </h2>
             
             <div class="players-list" id="players-list">
@@ -192,24 +378,14 @@
                 {{end}}
             </div>
 
-            <!-- Scoreboard (visible pendant/après la partie) -->
-            {{if or (eq .Room.Status "playing") (eq .Room.Status "finished")}}
-            <div class="scoreboard" id="scoreboard">
+            <!-- Scoreboard -->
+            <div class="scoreboard" id="scoreboard" style="display: none;">
                 <h3>
                     <span class="icon icon-trophy icon-sm"></span>
                     Scores
                 </h3>
-                <div class="scoreboard-list" id="scoreboard-list">
-                    {{range $userID, $player := .Room.Players}}
-                    <div class="score-row" data-user-id="{{$userID}}">
-                        <span class="score-rank">-</span>
-                        <span class="score-player">{{$player.Pseudo}}</span>
-                        <span class="score-value">{{$player.Score}} pts</span>
-                    </div>
-                    {{end}}
-                </div>
+                <div class="scoreboard-list" id="scoreboard-list"></div>
             </div>
-            {{end}}
 
             <!-- Bouton quitter -->
             <div class="mt-lg">
@@ -255,13 +431,26 @@
     }
 
     // =========================================================================
-    // WEBSOCKET MANAGER (INTÉGRÉ)
+    // VARIABLES GLOBALES
     // =========================================================================
     var ws = null;
     var wsConnected = false;
     var wsReconnectAttempts = 0;
     var wsMaxReconnectAttempts = 5;
 
+    var roomCode = '{{.Room.Code}}';
+    var roomId = '{{.Room.ID}}';
+    var currentUserId = '{{.User.ID}}';
+    var roomStatus = '{{.Room.Status}}';
+    var isHost = {{if .Player.IsHost}}true{{else}}false{{end}};
+    var isReady = {{if .Player.IsReady}}true{{else}}false{{end}};
+    var hasAnswered = false;
+    var currentRound = 0;
+    var totalRounds = 10;
+
+    // =========================================================================
+    // WEBSOCKET
+    // =========================================================================
     function connectWebSocket(roomCode) {
         var protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
         var wsUrl = protocol + '//' + window.location.host + '/ws/room/' + roomCode;
@@ -322,6 +511,7 @@
         console.log('📨 Reçu:', message.type, message);
         
         switch(message.type) {
+            // Messages de salle
             case 'player_ready':
                 onPlayerReady(message.payload);
                 break;
@@ -333,10 +523,36 @@
                 showToast(message.payload.pseudo + ' a quitté la salle', 'warning');
                 removePlayerFromUI(message.payload.user_id);
                 break;
-            case 'start_game':
-                showToast('La partie commence !', 'success');
-                setTimeout(function() { window.location.reload(); }, 1500);
+            case 'room_update':
+                onRoomUpdate(message.payload);
                 break;
+            case 'start_game':
+                onGameStart(message.payload);
+                break;
+            
+            // Messages Blind Test
+            case 'bt_new_round':
+                onNewRound(message.payload);
+                break;
+            case 'time_update':
+                onTimeUpdate(message.payload);
+                break;
+            case 'bt_result':
+                onAnswerResult(message.payload);
+                break;
+            case 'player_found':
+                onPlayerFound(message.payload);
+                break;
+            case 'bt_reveal':
+                onReveal(message.payload);
+                break;
+            case 'bt_scores':
+                onScoresUpdate(message.payload);
+                break;
+            case 'bt_game_end':
+                onGameEnd(message.payload);
+                break;
+            
             case 'error':
                 showToast(message.error || 'Erreur', 'error');
                 break;
@@ -344,19 +560,218 @@
     }
 
     // =========================================================================
-    // VARIABLES GLOBALES
+    // GESTIONNAIRES D'ÉVÉNEMENTS SALLE
     // =========================================================================
-    var roomCode = '{{.Room.Code}}';
-    var roomId = '{{.Room.ID}}';
-    var currentUserId = '{{.User.ID}}';
-    var roomStatus = '{{.Room.Status}}';
-    var isHost = '{{.Player.IsHost}}' === 'true';
-    var isReady = '{{.Player.IsReady}}' === 'true';
+    function onRoomUpdate(data) {
+        if (data.status) {
+            roomStatus = data.status;
+        }
+    }
+
+    function onPlayerReady(data) {
+        var playerItem = document.querySelector('[data-user-id="' + data.user_id + '"]');
+        if (playerItem) {
+            var statusEl = playerItem.querySelector('.player-status span');
+            var readyIcon = playerItem.querySelector('.player-ready-icon');
+            
+            if (data.ready) {
+                if (statusEl) {
+                    statusEl.className = 'text-success';
+                    statusEl.textContent = 'Prêt';
+                }
+                if (readyIcon) {
+                    readyIcon.className = 'player-ready-icon ready';
+                    readyIcon.innerHTML = '<span class="icon icon-check icon-sm"></span>';
+                }
+            } else {
+                if (statusEl) {
+                    statusEl.className = 'text-muted';
+                    statusEl.textContent = 'En attente';
+                }
+                if (readyIcon) {
+                    readyIcon.className = 'player-ready-icon not-ready';
+                    readyIcon.innerHTML = '<span class="icon icon-timer icon-sm"></span>';
+                }
+            }
+        }
+        updateStartButton();
+    }
 
     // =========================================================================
-    // FONCTIONS DE LA SALLE
+    // GESTIONNAIRES BLIND TEST
     // =========================================================================
-    
+    function onGameStart(data) {
+        showToast('La partie commence !', 'success');
+        roomStatus = 'playing';
+        
+        document.getElementById('waiting-state').style.display = 'none';
+        document.getElementById('playing-state').style.display = 'block';
+        document.getElementById('scoreboard').style.display = 'block';
+        
+        totalRounds = data.rounds || 10;
+    }
+
+    function onNewRound(data) {
+        console.log('🎵 Nouvelle manche:', data);
+        
+        currentRound = data.round;
+        hasAnswered = false;
+        
+        // Mise à jour UI
+        document.getElementById('round-number').textContent = 'Manche ' + data.round + '/' + data.total;
+        document.getElementById('timer').textContent = data.duration + 's';
+        document.getElementById('timer').className = '';
+        
+        // Réinitialiser le formulaire
+        var answerForm = document.getElementById('answer-form');
+        answerForm.classList.remove('disabled');
+        document.getElementById('answer-input').disabled = false;
+        document.getElementById('answer-input').value = '';
+        document.getElementById('submit-answer').disabled = false;
+        
+        // Cacher les sections de feedback
+        document.getElementById('answer-feedback').style.display = 'none';
+        document.getElementById('player-found-alerts').innerHTML = '';
+        document.getElementById('reveal-section').style.display = 'none';
+        
+        // Image floue
+        var trackImage = document.getElementById('track-image');
+        trackImage.classList.add('blur');
+        trackImage.classList.remove('revealed');
+        trackImage.src = '/static/img/album-placeholder.png';
+        
+        // Charger et jouer l'audio
+        var audio = document.getElementById('preview-audio');
+        if (data.preview_url) {
+            audio.src = data.preview_url;
+            audio.load();
+            audio.play().catch(function(e) {
+                console.log('Autoplay bloqué:', e);
+                showToast('Cliquez sur play pour écouter', 'info');
+            });
+        }
+    }
+
+    function onTimeUpdate(data) {
+        var timerEl = document.getElementById('timer');
+        timerEl.textContent = data.time_left + 's';
+        
+        // Changer la couleur selon le temps
+        if (data.time_left <= 5) {
+            timerEl.className = 'danger';
+        } else if (data.time_left <= 10) {
+            timerEl.className = 'warning';
+        } else {
+            timerEl.className = '';
+        }
+    }
+
+    function onAnswerResult(data) {
+        var feedback = document.getElementById('answer-feedback');
+        
+        if (data.already_answered) {
+            feedback.className = 'answer-feedback wrong';
+            feedback.textContent = 'Vous avez déjà répondu !';
+        } else if (data.is_correct) {
+            feedback.className = 'answer-feedback correct';
+            feedback.textContent = '✓ Bonne réponse ! +' + data.points + ' points';
+        } else {
+            feedback.className = 'answer-feedback wrong';
+            feedback.textContent = '✕ Mauvaise réponse...';
+            // Permettre de réessayer
+            document.getElementById('answer-input').disabled = false;
+            document.getElementById('submit-answer').disabled = false;
+            document.getElementById('answer-form').classList.remove('disabled');
+        }
+        
+        feedback.style.display = 'block';
+    }
+
+    function onPlayerFound(data) {
+        var alertsContainer = document.getElementById('player-found-alerts');
+        var alert = document.createElement('div');
+        alert.className = 'player-found-alert';
+        alert.innerHTML = '🎉 <strong>' + data.pseudo + '</strong> a trouvé ! (+' + data.points + ' pts)';
+        alertsContainer.appendChild(alert);
+        
+        showToast(data.pseudo + ' a trouvé la réponse !', 'success');
+    }
+
+    function onReveal(data) {
+        console.log('🔓 Révélation:', data);
+        
+        // Arrêter l'audio
+        var audio = document.getElementById('preview-audio');
+        audio.pause();
+        
+        // Afficher la réponse
+        var revealSection = document.getElementById('reveal-section');
+        revealSection.innerHTML = '<div class="reveal-card">' +
+            '<img src="' + (data.image_url || '/static/img/album-placeholder.png') + '" alt="Album">' +
+            '<h3>' + data.track_name + '</h3>' +
+            '<p>' + data.artist_name + '</p>' +
+            '<p class="text-muted">' + data.album_name + '</p>' +
+            '</div>';
+        revealSection.style.display = 'block';
+        
+        // Révéler l'image
+        var trackImage = document.getElementById('track-image');
+        if (data.image_url) {
+            trackImage.src = data.image_url;
+        }
+        trackImage.classList.remove('blur');
+        trackImage.classList.add('revealed');
+        
+        // Désactiver le formulaire
+        document.getElementById('answer-form').classList.add('disabled');
+    }
+
+    function onScoresUpdate(scores) {
+        var list = document.getElementById('scoreboard-list');
+        list.innerHTML = '';
+        
+        scores.forEach(function(score, index) {
+            var row = document.createElement('div');
+            row.className = 'score-row';
+            row.innerHTML = '<span class="score-rank">' + (index + 1) + '.</span>' +
+                '<span class="score-player">' + score.pseudo + '</span>' +
+                '<span class="score-value">' + score.score + ' pts</span>';
+            list.appendChild(row);
+        });
+    }
+
+    function onGameEnd(data) {
+        console.log('🏁 Fin de partie:', data);
+        roomStatus = 'finished';
+        
+        document.getElementById('playing-state').style.display = 'none';
+        document.getElementById('finished-state').style.display = 'block';
+        
+        // Afficher le gagnant
+        document.getElementById('winner-name').textContent = data.winner || 'Personne';
+        
+        if (data.scores && data.scores.length > 0) {
+            document.getElementById('winner-score').textContent = data.scores[0].score + ' points';
+            
+            // Afficher le classement final
+            var finalScores = document.getElementById('final-scores');
+            finalScores.innerHTML = '';
+            data.scores.forEach(function(score, index) {
+                var row = document.createElement('div');
+                row.className = 'score-row';
+                row.innerHTML = '<span class="score-rank">' + (index + 1) + '.</span>' +
+                    '<span class="score-player">' + score.pseudo + '</span>' +
+                    '<span class="score-value">' + score.score + ' pts</span>';
+                finalScores.appendChild(row);
+            });
+        }
+        
+        showToast('Partie terminée !', 'success', 5000);
+    }
+
+    // =========================================================================
+    // ACTIONS UTILISATEUR
+    // =========================================================================
     function copyRoomCode(code) {
         navigator.clipboard.writeText(code).then(function() {
             showToast('Code copié !', 'success');
@@ -404,7 +819,7 @@
         input.value = '';
         input.disabled = true;
         document.getElementById('submit-answer').disabled = true;
-        showToast('Réponse envoyée !', 'success');
+        document.getElementById('answer-form').classList.add('disabled');
     }
 
     function leaveRoom() {
@@ -444,7 +859,6 @@
         var nonHostNotReady = 0;
 
         playerItems.forEach(function(item) {
-            // Compter les joueurs NON-hôtes qui ne sont PAS prêts
             if (!item.classList.contains('is-host')) {
                 var readyIcon = item.querySelector('.player-ready-icon');
                 if (readyIcon && readyIcon.classList.contains('not-ready')) {
@@ -453,10 +867,7 @@
             }
         });
 
-        // Mode solo (1 joueur) OU tous les non-hôtes sont prêts
         var canStart = (playerCount === 1) || (nonHostNotReady === 0);
-        
-        console.log('updateStartButton: players=' + playerCount + ', nonHostNotReady=' + nonHostNotReady + ', canStart=' + canStart);
         
         startBtn.disabled = !canStart;
         
@@ -469,35 +880,6 @@
                 hint.textContent = 'En attente de ' + nonHostNotReady + ' joueur(s)...';
             }
         }
-    }
-
-    function onPlayerReady(data) {
-        var playerItem = document.querySelector('[data-user-id="' + data.user_id + '"]');
-        if (playerItem) {
-            var statusEl = playerItem.querySelector('.player-status span');
-            var readyIcon = playerItem.querySelector('.player-ready-icon');
-            
-            if (data.ready) {
-                if (statusEl) {
-                    statusEl.className = 'text-success';
-                    statusEl.textContent = 'Prêt';
-                }
-                if (readyIcon) {
-                    readyIcon.className = 'player-ready-icon ready';
-                    readyIcon.innerHTML = '<span class="icon icon-check icon-sm"></span>';
-                }
-            } else {
-                if (statusEl) {
-                    statusEl.className = 'text-muted';
-                    statusEl.textContent = 'En attente';
-                }
-                if (readyIcon) {
-                    readyIcon.className = 'player-ready-icon not-ready';
-                    readyIcon.innerHTML = '<span class="icon icon-timer icon-sm"></span>';
-                }
-            }
-        }
-        updateStartButton();
     }
 
     function addPlayerToUI(player) {
@@ -514,12 +896,17 @@
             '<div class="player-status"><span class="text-muted">En attente</span></div></div>' +
             '<div class="player-ready-icon not-ready"><span class="icon icon-timer icon-sm"></span></div>';
         list.appendChild(div);
+        
+        document.getElementById('player-count').textContent = list.children.length;
         updateStartButton();
     }
 
     function removePlayerFromUI(userId) {
         var el = document.querySelector('[data-user-id="' + userId + '"]');
         if (el) el.remove();
+        
+        var list = document.getElementById('players-list');
+        document.getElementById('player-count').textContent = list.children.length;
         updateStartButton();
     }
 
@@ -527,7 +914,17 @@
     // INITIALISATION
     // =========================================================================
     document.addEventListener('DOMContentLoaded', function() {
-        console.log('🎮 Initialisation salle:', roomCode);
+        console.log('🎮 Initialisation salle:', roomCode, 'Status:', roomStatus);
+        
+        // Afficher le bon état initial
+        if (roomStatus === 'playing') {
+            document.getElementById('waiting-state').style.display = 'none';
+            document.getElementById('playing-state').style.display = 'block';
+            document.getElementById('scoreboard').style.display = 'block';
+        } else if (roomStatus === 'finished') {
+            document.getElementById('waiting-state').style.display = 'none';
+            document.getElementById('finished-state').style.display = 'block';
+        }
         
         // Connexion WebSocket
         connectWebSocket(roomCode);

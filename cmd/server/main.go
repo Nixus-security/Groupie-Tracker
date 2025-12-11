@@ -85,6 +85,14 @@ func main() {
 	wsHandler := websocket.NewHandler()
 	log.Println("[OK] Handler WebSocket initialisé")
 
+	// >>> AJOUTER CES LIGNES <<<
+	// Connecter le handler Blind Test au WebSocket
+	blindtestHandler := blindtest.GetHandler()
+	wsHandler.SetBlindTestHandler(blindtestHandler)
+	log.Println("[OK] Handler Blind Test connecté")
+
+
+
 	// Initialiser les handlers
 	authHandler := auth.NewHandler(config.TemplateDir)
 	roomHandler := rooms.NewHandler(config.TemplateDir)
