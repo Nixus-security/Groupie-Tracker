@@ -442,8 +442,8 @@
     var roomId = '{{.Room.ID}}';
     var currentUserId = '{{.User.ID}}';
     var roomStatus = '{{.Room.Status}}';
-    var isHost = {{if .Player.IsHost}}true{{else}}false{{end}};
-    var isReady = {{if .Player.IsReady}}true{{else}}false{{end}};
+    var isHost = '{{.Player.IsHost}}' === 'true';
+    var isReady = '{{.Player.IsReady}}' === 'true';
     var hasAnswered = false;
     var currentRound = 0;
     var totalRounds = 10;

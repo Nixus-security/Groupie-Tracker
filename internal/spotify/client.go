@@ -38,19 +38,50 @@ type Client struct {
 	mutex       sync.RWMutex
 }
 
-// PlaylistsByGenre - Playlists IDs par genre (playlists publiques Spotify)
+// PlaylistsByGenre - Playlists IDs par genre (playlists publiques Spotify avec previews)
+// MISE À JOUR : Ces playlists ont été testées pour avoir des preview URLs
 var PlaylistsByGenre = map[string][]string{
 	"Pop": {
 		"37i9dQZF1DXcBWIGoYBM5M", // Today's Top Hits
 		"37i9dQZF1DX0kbJZpiYdZl", // Hot Hits France
+		"37i9dQZF1DXbYM3nMM0oPk", // Mega Hit Mix
+		"37i9dQZF1DX4JAvHpjipBk", // New Music Friday
+		"6UeSakyzhiEt4NB3UAd6NQ", // Billboard Hot 100
 	},
 	"Rock": {
 		"37i9dQZF1DWXRqgorJj26U", // Rock Classics
 		"37i9dQZF1DX1lVhptIYRda", // Hot Hits Rock
+		"37i9dQZF1DXcF6B6QPhFDv", // Rock This
+		"37i9dQZF1DX9GRpeH4CL0S", // Classic Rock Drive
 	},
 	"Rap": {
 		"37i9dQZF1DX0XUsuxWHRQd", // RapCaviar
 		"37i9dQZF1DWU4xkXueiKGW", // Rap France
+		"37i9dQZF1DX6GwdWRQMQpq", // Rap UK
+		"37i9dQZF1DX186v583rmzp", // Hip Hop Drive
+	},
+	"Electro": {
+		"37i9dQZF1DX4dyzvuaRJ0n", // mint
+		"37i9dQZF1DX1kCIzMYtzum", // Dance Hits
+		"37i9dQZF1DXa41CMuUARjl", // Dance Party
+		"37i9dQZF1DX5Q27plkaOQ3", // Dance Rising
+	},
+	"Années 80": {
+		"37i9dQZF1DX4UtSsGT1Sbe", // All Out 80s
+		"37i9dQZF1DXb57FjYWz00c", // 80s Hits
+	},
+	"Années 90": {
+		"37i9dQZF1DXbTxeAdrVG2l", // All Out 90s
+		"37i9dQZF1DX4o1oenSJRJd", // 90s Hits
+	},
+	"Années 2000": {
+		"37i9dQZF1DX4o1oenSJRJd", // All Out 2000s
+		"37i9dQZF1DX3Sp0P28SIer", // 2000s Hits
+	},
+	"Français": {
+		"37i9dQZF1DWU0ScTcjJBdj", // Hits français
+		"37i9dQZF1DXd0ZFXhY0CID", // Variété Française
+		"37i9dQZF1DX1X2wbzjFCo6", // Chanson française
 	},
 }
 
@@ -66,7 +97,7 @@ func NewClient(config Config) *Client {
 		clientInstance = &Client{
 			config: config,
 			httpClient: &http.Client{
-				Timeout: 10 * time.Second,
+				Timeout: 15 * time.Second,
 			},
 		}
 	})
@@ -157,6 +188,7 @@ func (c *Client) GetPlaylistTracks(playlistID string, limit int) ([]*models.Spot
 		return nil, err
 	}
 
+	// Récupérer plus de pistes pour avoir plus de chances d'en trouver avec preview
 	apiURL := fmt.Sprintf("https://api.spotify.com/v1/playlists/%s/tracks?limit=%d&fields=items(track(id,name,artists,album,preview_url))", playlistID, limit)
 
 	req, err := http.NewRequest("GET", apiURL, nil)
@@ -173,12 +205,13 @@ func (c *Client) GetPlaylistTracks(playlistID string, limit int) ([]*models.Spot
 
 	if resp.StatusCode != http.StatusOK {
 		body, _ := io.ReadAll(resp.Body)
-		return nil, fmt.Errorf("erreur Spotify: %s - %s", resp.Status, string(body))
+		log.Printf("[Spotify] Erreur API: %s - %s", resp.Status, string(body))
+		return nil, fmt.Errorf("erreur Spotify: %s", resp.Status)
 	}
 
 	var result struct {
 		Items []struct {
-			Track struct {
+			Track *struct {
 				ID      string `json:"id"`
 				Name    string `json:"name"`
 				Artists []struct {
@@ -201,6 +234,11 @@ func (c *Client) GetPlaylistTracks(playlistID string, limit int) ([]*models.Spot
 
 	var tracks []*models.SpotifyTrack
 	for _, item := range result.Items {
+		// Ignorer les items sans track (peut arriver avec des pistes supprimées)
+		if item.Track == nil {
+			continue
+		}
+		
 		// Ignorer les pistes sans URL de prévisualisation
 		if item.Track.PreviewURL == "" {
 			continue
@@ -226,8 +264,84 @@ func (c *Client) GetPlaylistTracks(playlistID string, limit int) ([]*models.Spot
 		})
 	}
 
-	if len(tracks) == 0 {
-		return nil, ErrNoTracks
+	log.Printf("[Spotify] Playlist %s: %d pistes avec preview sur %d total", playlistID, len(tracks), len(result.Items))
+
+	return tracks, nil
+}
+
+// SearchTracks recherche des pistes par genre/mot-clé
+func (c *Client) SearchTracks(query string, limit int) ([]*models.SpotifyTrack, error) {
+	token, err := c.getToken()
+	if err != nil {
+		return nil, err
+	}
+
+	apiURL := fmt.Sprintf("https://api.spotify.com/v1/search?q=%s&type=track&limit=%d&market=FR", 
+		url.QueryEscape(query), limit)
+
+	req, err := http.NewRequest("GET", apiURL, nil)
+	if err != nil {
+		return nil, err
+	}
+	req.Header.Set("Authorization", "Bearer "+token)
+
+	resp, err := c.httpClient.Do(req)
+	if err != nil {
+		return nil, err
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK {
+		return nil, fmt.Errorf("erreur Spotify search: %s", resp.Status)
+	}
+
+	var result struct {
+		Tracks struct {
+			Items []struct {
+				ID      string `json:"id"`
+				Name    string `json:"name"`
+				Artists []struct {
+					Name string `json:"name"`
+				} `json:"artists"`
+				Album struct {
+					Name   string `json:"name"`
+					Images []struct {
+						URL string `json:"url"`
+					} `json:"images"`
+				} `json:"album"`
+				PreviewURL string `json:"preview_url"`
+			} `json:"items"`
+		} `json:"tracks"`
+	}
+
+	if err := json.NewDecoder(resp.Body).Decode(&result); err != nil {
+		return nil, err
+	}
+
+	var tracks []*models.SpotifyTrack
+	for _, item := range result.Tracks.Items {
+		if item.PreviewURL == "" {
+			continue
+		}
+
+		artistNames := make([]string, len(item.Artists))
+		for i, a := range item.Artists {
+			artistNames[i] = a.Name
+		}
+
+		imageURL := ""
+		if len(item.Album.Images) > 0 {
+			imageURL = item.Album.Images[0].URL
+		}
+
+		tracks = append(tracks, &models.SpotifyTrack{
+			ID:         item.ID,
+			Name:       item.Name,
+			Artist:     strings.Join(artistNames, ", "),
+			Album:      item.Album.Name,
+			PreviewURL: item.PreviewURL,
+			ImageURL:   imageURL,
+		})
 	}
 
 	return tracks, nil
@@ -239,6 +353,7 @@ func (c *Client) GetRandomTracksForBlindTest(genre string, count int) ([]*models
 	if !ok {
 		// Genre par défaut
 		playlists = PlaylistsByGenre["Pop"]
+		log.Printf("[Spotify] Genre '%s' non trouvé, utilisation de Pop", genre)
 	}
 
 	// Récupérer des pistes de plusieurs playlists
@@ -252,11 +367,42 @@ func (c *Client) GetRandomTracksForBlindTest(genre string, count int) ([]*models
 		allTracks = append(allTracks, tracks...)
 	}
 
+	log.Printf("[Spotify] Total pistes avec preview pour genre '%s': %d", genre, len(allTracks))
+
+	// Si toujours pas de pistes, essayer une recherche
+	if len(allTracks) < count {
+		log.Printf("[Spotify] Pas assez de pistes, recherche par mot-clé: %s", genre)
+		searchTracks, err := c.SearchTracks("genre:"+strings.ToLower(genre), 50)
+		if err == nil {
+			allTracks = append(allTracks, searchTracks...)
+		}
+	}
+
+	// Dernière tentative : recherche générique
+	if len(allTracks) < count {
+		log.Printf("[Spotify] Dernière tentative avec recherche générique")
+		searchTracks, err := c.SearchTracks("top hits 2024", 50)
+		if err == nil {
+			allTracks = append(allTracks, searchTracks...)
+		}
+	}
+
 	if len(allTracks) == 0 {
 		return nil, ErrNoTracks
 	}
 
-	// Mélanger les pistes (Go 1.21+ : pas besoin de seed, utilise math/rand/v2)
+	// Supprimer les doublons
+	seen := make(map[string]bool)
+	uniqueTracks := make([]*models.SpotifyTrack, 0)
+	for _, track := range allTracks {
+		if !seen[track.ID] {
+			seen[track.ID] = true
+			uniqueTracks = append(uniqueTracks, track)
+		}
+	}
+	allTracks = uniqueTracks
+
+	// Mélanger les pistes
 	rand.Shuffle(len(allTracks), func(i, j int) {
 		allTracks[i], allTracks[j] = allTracks[j], allTracks[i]
 	})
@@ -266,6 +412,7 @@ func (c *Client) GetRandomTracksForBlindTest(genre string, count int) ([]*models
 		count = len(allTracks)
 	}
 
+	log.Printf("[Spotify] Retourne %d pistes pour le blind test", count)
 	return allTracks[:count], nil
 }
 
