@@ -195,6 +195,44 @@
             color: var(--text-muted);
             margin-top: 0.5rem;
         }
+        
+        /* Loading indicator */
+        .loading-overlay {
+            position: fixed;
+            top: 0;
+            left: 0;
+            right: 0;
+            bottom: 0;
+            background: rgba(0, 0, 0, 0.7);
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+            z-index: 1000;
+        }
+        
+        .loading-spinner {
+            width: 60px;
+            height: 60px;
+            border: 4px solid rgba(255, 255, 255, 0.1);
+            border-top-color: var(--neon-cyan);
+            border-radius: 50%;
+            animation: spin 1s linear infinite;
+        }
+        
+        .loading-text {
+            margin-top: 1rem;
+            color: var(--neon-cyan);
+            font-size: 1.2rem;
+        }
+        
+        @keyframes spin {
+            to { transform: rotate(360deg); }
+        }
+        
+        .hidden {
+            display: none !important;
+        }
     </style>
 </head>
 <body>
@@ -218,6 +256,12 @@
             <a href="/logout" class="btn btn-secondary btn-sm">Déconnexion</a>
         </div>
     </nav>
+
+    <!-- Loading overlay pour le chargement audio -->
+    <div id="loading-overlay" class="loading-overlay hidden">
+        <div class="loading-spinner"></div>
+        <div class="loading-text">Chargement de la musique...</div>
+    </div>
 
     <!-- Page de salle -->
     <div class="room-page">
@@ -279,7 +323,7 @@
                 <div id="playing-state" style="display: none;">
                     <div id="round-info">
                         <span id="round-number">Manche 1/10</span>
-                        <span id="timer">37s</span>
+                        <span id="timer">30s</span>
                     </div>
 
                     <div id="audio-player">
@@ -287,6 +331,8 @@
                         <audio id="preview-audio" controls style="width: 100%; max-width: 400px; margin-top: 1rem;">
                             Votre navigateur ne supporte pas l'audio.
                         </audio>
+                        <!-- Audio préchargé (caché) -->
+                        <audio id="preload-audio" preload="auto" style="display: none;"></audio>
                     </div>
 
                     <div id="answer-form">
@@ -444,9 +490,52 @@
     var roomStatus = '{{.Room.Status}}';
     var isHost = '{{.Player.IsHost}}' === 'true';
     var isReady = '{{.Player.IsReady}}' === 'true';
-    var hasAnswered = false;
+    var hasAnsweredCorrectly = false;
     var currentRound = 0;
     var totalRounds = 10;
+    var isRoundActive = false;
+    var preloadedAudioUrl = null;
+    var audioPreloaded = false;
+
+    // =========================================================================
+    // PRÉCHARGEMENT AUDIO
+    // =========================================================================
+    function preloadAudio(url) {
+        return new Promise(function(resolve, reject) {
+            var preloadAudio = document.getElementById('preload-audio');
+            preloadAudio.src = url;
+            
+            var loadTimeout = setTimeout(function() {
+                console.log('⚠️ Timeout préchargement audio, on continue');
+                resolve();
+            }, 5000); // 5 secondes max
+            
+            preloadAudio.oncanplaythrough = function() {
+                clearTimeout(loadTimeout);
+                console.log('✅ Audio préchargé');
+                audioPreloaded = true;
+                preloadedAudioUrl = url;
+                resolve();
+            };
+            
+            preloadAudio.onerror = function(e) {
+                clearTimeout(loadTimeout);
+                console.error('❌ Erreur préchargement audio:', e);
+                resolve(); // On continue quand même
+            };
+            
+            preloadAudio.load();
+        });
+    }
+
+    function showLoading(show) {
+        var overlay = document.getElementById('loading-overlay');
+        if (show) {
+            overlay.classList.remove('hidden');
+        } else {
+            overlay.classList.add('hidden');
+        }
+    }
 
     // =========================================================================
     // WEBSOCKET
@@ -531,6 +620,9 @@
                 break;
             
             // Messages Blind Test
+            case 'bt_preload':
+                onPreload(message.payload);
+                break;
             case 'bt_new_round':
                 onNewRound(message.payload);
                 break;
@@ -611,11 +703,29 @@
         totalRounds = data.rounds || 10;
     }
 
+    // Préchargement de l'audio avant le début du round
+    function onPreload(data) {
+        console.log('🔄 Préchargement audio pour manche', data.round);
+        showLoading(true);
+        
+        preloadAudio(data.preview_url).then(function() {
+            console.log('✅ Audio prêt pour manche', data.round);
+            showLoading(false);
+        });
+    }
+
     function onNewRound(data) {
         console.log('🎵 Nouvelle manche:', data);
         
+        // Éviter les doubles exécutions
+        if (isRoundActive && currentRound === data.round) {
+            console.log('⚠️ Round déjà actif, ignoré');
+            return;
+        }
+        
+        isRoundActive = true;
         currentRound = data.round;
-        hasAnswered = false;
+        hasAnsweredCorrectly = false;
         
         // Mise à jour UI
         document.getElementById('round-number').textContent = 'Manche ' + data.round + '/' + data.total;
@@ -642,14 +752,35 @@
         
         // Charger et jouer l'audio
         var audio = document.getElementById('preview-audio');
-        if (data.preview_url) {
+        
+        // Utiliser l'audio préchargé si disponible
+        if (preloadedAudioUrl === data.preview_url && audioPreloaded) {
+            console.log('🎵 Utilisation de l\'audio préchargé');
             audio.src = data.preview_url;
             audio.load();
+        } else {
+            console.log('🎵 Chargement direct de l\'audio');
+            audio.src = data.preview_url;
+            audio.load();
+        }
+        
+        // Attendre un peu que l'audio soit prêt puis jouer
+        audio.oncanplay = function() {
             audio.play().catch(function(e) {
                 console.log('Autoplay bloqué:', e);
                 showToast('Cliquez sur play pour écouter', 'info');
             });
-        }
+        };
+        
+        // Reset des flags de préchargement
+        audioPreloaded = false;
+        preloadedAudioUrl = null;
+        
+        // Cacher le loading
+        showLoading(false);
+        
+        // Focus sur le champ de réponse
+        document.getElementById('answer-input').focus();
     }
 
     function onTimeUpdate(data) {
@@ -671,20 +802,27 @@
         
         if (data.already_answered) {
             feedback.className = 'answer-feedback wrong';
-            feedback.textContent = 'Vous avez déjà répondu !';
+            feedback.textContent = 'Vous avez déjà trouvé la bonne réponse !';
+            feedback.style.display = 'block';
         } else if (data.is_correct) {
             feedback.className = 'answer-feedback correct';
             feedback.textContent = '✓ Bonne réponse ! +' + data.points + ' points';
+            feedback.style.display = 'block';
+            hasAnsweredCorrectly = true;
+            
+            // Désactiver le formulaire après bonne réponse
+            document.getElementById('answer-form').classList.add('disabled');
+            document.getElementById('answer-input').disabled = true;
+            document.getElementById('submit-answer').disabled = true;
         } else {
             feedback.className = 'answer-feedback wrong';
-            feedback.textContent = '✕ Mauvaise réponse...';
+            feedback.textContent = '✕ Mauvaise réponse, réessayez !';
+            feedback.style.display = 'block';
+            
             // Permettre de réessayer
-            document.getElementById('answer-input').disabled = false;
-            document.getElementById('submit-answer').disabled = false;
-            document.getElementById('answer-form').classList.remove('disabled');
+            document.getElementById('answer-input').value = '';
+            document.getElementById('answer-input').focus();
         }
-        
-        feedback.style.display = 'block';
     }
 
     function onPlayerFound(data) {
@@ -694,11 +832,17 @@
         alert.innerHTML = '🎉 <strong>' + data.pseudo + '</strong> a trouvé ! (+' + data.points + ' pts)';
         alertsContainer.appendChild(alert);
         
-        showToast(data.pseudo + ' a trouvé la réponse !', 'success');
+        // Supprimer après 3 secondes
+        setTimeout(function() {
+            alert.style.opacity = '0';
+            setTimeout(function() { alert.remove(); }, 300);
+        }, 3000);
     }
 
     function onReveal(data) {
         console.log('🔓 Révélation:', data);
+        
+        isRoundActive = false;
         
         // Arrêter l'audio
         var audio = document.getElementById('preview-audio');
@@ -724,6 +868,8 @@
         
         // Désactiver le formulaire
         document.getElementById('answer-form').classList.add('disabled');
+        document.getElementById('answer-input').disabled = true;
+        document.getElementById('submit-answer').disabled = true;
     }
 
     function onScoresUpdate(scores) {
@@ -743,6 +889,11 @@
     function onGameEnd(data) {
         console.log('🏁 Fin de partie:', data);
         roomStatus = 'finished';
+        isRoundActive = false;
+        
+        // Arrêter l'audio
+        var audio = document.getElementById('preview-audio');
+        audio.pause();
         
         document.getElementById('playing-state').style.display = 'none';
         document.getElementById('finished-state').style.display = 'block';
@@ -807,6 +958,11 @@
     }
 
     function submitAnswer() {
+        if (hasAnsweredCorrectly) {
+            showToast('Vous avez déjà trouvé !', 'info');
+            return;
+        }
+        
         var input = document.getElementById('answer-input');
         var answer = input.value.trim();
         
@@ -816,10 +972,6 @@
         }
 
         sendWS('bt_answer', { answer: answer });
-        input.value = '';
-        input.disabled = true;
-        document.getElementById('submit-answer').disabled = true;
-        document.getElementById('answer-form').classList.add('disabled');
     }
 
     function leaveRoom() {
@@ -867,6 +1019,7 @@
             }
         });
 
+        // Permettre le mode solo OU tous prêts
         var canStart = (playerCount === 1) || (nonHostNotReady === 0);
         
         startBtn.disabled = !canStart;
@@ -937,6 +1090,7 @@
         if (answerInput) {
             answerInput.addEventListener('keypress', function(e) {
                 if (e.key === 'Enter') {
+                    e.preventDefault();
                     submitAnswer();
                 }
             });

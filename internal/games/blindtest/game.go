@@ -152,9 +152,13 @@ func (gm *GameManager) SubmitAnswer(roomID string, userID int64, answer string) 
 	state.Mutex.Lock()
 	defer state.Mutex.Unlock()
 
-	// Vérifier si le joueur a déjà répondu
+	// Vérifier si le joueur a déjà répondu correctement
 	if state.HasAnswered[userID] {
-		return &AnswerResult{AlreadyAnswered: true}, nil
+		// Vérifier si sa réponse précédente était correcte
+		prevAnswer := state.Answers[userID]
+		if checkAnswer(prevAnswer, state.CurrentTrack.Name, state.CurrentTrack.Artist) {
+			return &AnswerResult{AlreadyAnswered: true}, nil
+		}
 	}
 
 	// Enregistrer la réponse
