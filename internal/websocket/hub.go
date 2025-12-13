@@ -13,16 +13,16 @@ import (
 type Hub struct {
 	// Clients connectés par salle: roomCode -> userID -> Client
 	rooms map[string]map[int64]*Client
-	
+
 	// Canal pour enregistrer un nouveau client
 	register chan *Client
-	
+
 	// Canal pour désenregistrer un client
 	unregister chan *Client
-	
+
 	// Canal pour diffuser un message à une salle
 	broadcast chan *BroadcastMessage
-	
+
 	// Mutex pour l'accès concurrent
 	mutex sync.RWMutex
 }
@@ -50,6 +50,7 @@ func GetHub() *Hub {
 			broadcast:  make(chan *BroadcastMessage, 256),
 		}
 		go hubInstance.run()
+		log.Println("[Hub] ✅ WebSocket Hub démarré")
 	})
 	return hubInstance
 }
@@ -82,11 +83,13 @@ func (h *Hub) registerClient(client *Client) {
 
 	// Fermer l'ancienne connexion si elle existe
 	if oldClient, exists := h.rooms[client.RoomCode][client.UserID]; exists {
+		log.Printf("[Hub] ⚠️ Remplacement connexion existante pour User %d", client.UserID)
 		oldClient.Close()
 	}
 
 	h.rooms[client.RoomCode][client.UserID] = client
-	log.Printf("🔌 Client connecté: User %d dans salle %s", client.UserID, client.RoomCode)
+	log.Printf("[Hub] 🔌 Client connecté: User %d (%s) dans salle %s (total: %d)",
+		client.UserID, client.Pseudo, client.RoomCode, len(h.rooms[client.RoomCode]))
 }
 
 // unregisterClient désenregistre un client
@@ -98,11 +101,13 @@ func (h *Hub) unregisterClient(client *Client) {
 		if _, exists := room[client.UserID]; exists {
 			delete(room, client.UserID)
 			client.Close()
-			log.Printf("🔌 Client déconnecté: User %d de salle %s", client.UserID, client.RoomCode)
+			log.Printf("[Hub] 🔌 Client déconnecté: User %d (%s) de salle %s (restant: %d)",
+				client.UserID, client.Pseudo, client.RoomCode, len(room))
 
 			// Supprimer la salle si vide
 			if len(room) == 0 {
 				delete(h.rooms, client.RoomCode)
+				log.Printf("[Hub] 🗑️ Salle %s supprimée (vide)", client.RoomCode)
 			}
 		}
 	}
@@ -115,14 +120,23 @@ func (h *Hub) broadcastToRoom(msg *BroadcastMessage) {
 
 	room, exists := h.rooms[msg.RoomCode]
 	if !exists {
+		log.Printf("[Hub] ⚠️ Broadcast: salle %s non trouvée", msg.RoomCode)
 		return
 	}
 
 	data, err := json.Marshal(msg.Message)
 	if err != nil {
-		log.Printf("❌ Erreur marshal message: %v", err)
+		log.Printf("[Hub] ❌ Erreur marshal message: %v", err)
 		return
 	}
+
+	// Log du broadcast
+	recipientCount := len(room)
+	if msg.Exclude != 0 {
+		recipientCount--
+	}
+	log.Printf("[Hub] 📤 Broadcast: type=%s, room=%s, recipients=%d, exclude=%d",
+		msg.Message.Type, msg.RoomCode, recipientCount, msg.Exclude)
 
 	for userID, client := range room {
 		// Exclure l'utilisateur spécifié si nécessaire
@@ -132,8 +146,10 @@ func (h *Hub) broadcastToRoom(msg *BroadcastMessage) {
 
 		select {
 		case client.send <- data:
+			// Message envoyé
 		default:
 			// Buffer plein, fermer le client
+			log.Printf("[Hub] ⚠️ Buffer plein pour User %d, déconnexion", userID)
 			h.unregister <- client
 		}
 	}
@@ -178,23 +194,29 @@ func (h *Hub) SendToUser(roomCode string, userID int64, msg *models.WSMessage) {
 
 	room, exists := h.rooms[roomCode]
 	if !exists {
+		log.Printf("[Hub] ⚠️ SendToUser: salle %s non trouvée", roomCode)
 		return
 	}
 
 	client, exists := room[userID]
 	if !exists {
+		log.Printf("[Hub] ⚠️ SendToUser: User %d non trouvé dans salle %s", userID, roomCode)
 		return
 	}
 
 	data, err := json.Marshal(msg)
 	if err != nil {
+		log.Printf("[Hub] ❌ Erreur marshal message: %v", err)
 		return
 	}
 
+	log.Printf("[Hub] 📤 SendToUser: type=%s, user=%d, room=%s", msg.Type, userID, roomCode)
+
 	select {
 	case client.send <- data:
+		// OK
 	default:
-		// Buffer plein
+		log.Printf("[Hub] ⚠️ Buffer plein pour User %d", userID)
 	}
 }
 
@@ -207,4 +229,35 @@ func (h *Hub) GetRoomClients(roomCode string) int {
 		return len(room)
 	}
 	return 0
+}
+
+// GetConnectedUsers retourne les IDs des utilisateurs connectés dans une salle
+func (h *Hub) GetConnectedUsers(roomCode string) []int64 {
+	h.mutex.RLock()
+	defer h.mutex.RUnlock()
+
+	room, exists := h.rooms[roomCode]
+	if !exists {
+		return nil
+	}
+
+	users := make([]int64, 0, len(room))
+	for userID := range room {
+		users = append(users, userID)
+	}
+	return users
+}
+
+// IsUserConnected vérifie si un utilisateur est connecté dans une salle
+func (h *Hub) IsUserConnected(roomCode string, userID int64) bool {
+	h.mutex.RLock()
+	defer h.mutex.RUnlock()
+
+	room, exists := h.rooms[roomCode]
+	if !exists {
+		return false
+	}
+
+	_, connected := room[userID]
+	return connected
 }

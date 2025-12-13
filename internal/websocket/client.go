@@ -28,17 +28,17 @@ const (
 
 // Client représente une connexion WebSocket
 type Client struct {
-	hub      *Hub
-	conn     *websocket.Conn
-	send     chan []byte
-	
+	hub  *Hub
+	conn *websocket.Conn
+	send chan []byte
+
 	UserID   int64
 	Pseudo   string
 	RoomCode string
-	
+
 	// Handler pour traiter les messages reçus
 	messageHandler MessageHandler
-	
+
 	closed bool
 	mutex  sync.Mutex
 }
@@ -90,12 +90,16 @@ func (c *Client) readPump() {
 		// Parser le message
 		var wsMsg models.WSMessage
 		if err := json.Unmarshal(message, &wsMsg); err != nil {
-			log.Printf("❌ Erreur parsing message: %v", err)
+			log.Printf("❌ Erreur parsing message: %v - Data: %s", err, string(message))
 			c.SendError("Message invalide")
 			continue
 		}
 
+		// Log du message reçu pour debug
+		log.Printf("[WS] 📨 Client %d (%s) -> type=%s", c.UserID, c.Pseudo, wsMsg.Type)
+
 		// Traiter le message ping
+		// ✅ Utilisation de la constante WSTypePing
 		if wsMsg.Type == models.WSTypePing {
 			c.Send(&models.WSMessage{Type: models.WSTypePong})
 			continue
@@ -163,18 +167,24 @@ func (c *Client) Send(msg *models.WSMessage) {
 
 	data, err := json.Marshal(msg)
 	if err != nil {
+		log.Printf("❌ Erreur marshal message: %v", err)
 		return
 	}
+
+	// Log pour debug
+	log.Printf("[WS] 📤 -> Client %d (%s): type=%s", c.UserID, c.Pseudo, msg.Type)
 
 	select {
 	case c.send <- data:
 	default:
 		// Buffer plein
+		log.Printf("⚠️ Buffer plein pour client %d", c.UserID)
 	}
 }
 
 // SendError envoie un message d'erreur au client
 func (c *Client) SendError(errMsg string) {
+	// ✅ Utilisation de la constante WSTypeError
 	c.Send(&models.WSMessage{
 		Type:  models.WSTypeError,
 		Error: errMsg,

@@ -222,20 +222,26 @@ const (
 	WSTypeStartGame    WSMessageType = "start_game"
 
 	// Messages Blind Test
-	WSTypeBTNewRound WSMessageType = "bt_new_round"
-	WSTypeBTAnswer   WSMessageType = "bt_answer"
-	WSTypeBTResult   WSMessageType = "bt_result"
-	WSTypeBTScores   WSMessageType = "bt_scores"
-	WSTypeBTGameEnd  WSMessageType = "bt_game_end"
+	WSTypeBTPreload   WSMessageType = "bt_preload"    // ✅ AJOUTÉ
+	WSTypeBTNewRound  WSMessageType = "bt_new_round"
+	WSTypeBTAnswer    WSMessageType = "bt_answer"
+	WSTypeBTResult    WSMessageType = "bt_result"
+	WSTypeBTReveal    WSMessageType = "bt_reveal"     // ✅ AJOUTÉ
+	WSTypeBTScores    WSMessageType = "bt_scores"
+	WSTypeBTGameEnd   WSMessageType = "bt_game_end"
+	WSTypeTimeUpdate  WSMessageType = "time_update"   // ✅ AJOUTÉ
+	WSTypePlayerFound WSMessageType = "player_found"  // ✅ AJOUTÉ
 
 	// Messages Petit Bac
-	WSTypePBNewRound   WSMessageType = "pb_new_round"
-	WSTypePBAnswer     WSMessageType = "pb_answer"
-	WSTypePBVote       WSMessageType = "pb_vote"
-	WSTypePBVoteResult WSMessageType = "pb_vote_result"
-	WSTypePBScores     WSMessageType = "pb_scores"
-	WSTypePBGameEnd    WSMessageType = "pb_game_end"
-	WSTypePBStopRound  WSMessageType = "pb_stop_round"
+	WSTypePBNewRound      WSMessageType = "pb_new_round"
+	WSTypePBAnswer        WSMessageType = "pb_answer"
+	WSTypePBSubmitAnswers WSMessageType = "submit_answers" // ✅ AJOUTÉ
+	WSTypePBVote          WSMessageType = "pb_vote"
+	WSTypePBSubmitVotes   WSMessageType = "submit_votes"   // ✅ AJOUTÉ
+	WSTypePBVoteResult    WSMessageType = "pb_vote_result"
+	WSTypePBScores        WSMessageType = "pb_scores"
+	WSTypePBGameEnd       WSMessageType = "pb_game_end"
+	WSTypePBStopRound     WSMessageType = "stop_round"     // ✅ CORRIGÉ (était "pb_stop_round")
 )
 
 // WSMessage message WebSocket générique

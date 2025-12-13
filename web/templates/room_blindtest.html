@@ -7,629 +7,184 @@
     <link rel="stylesheet" href="/static/style.css">
     <link rel="stylesheet" href="/static/icons.css">
     <style>
-        /* Styles spécifiques au Blind Test */
-        #round-info {
-            display: flex;
-            justify-content: space-between;
-            align-items: center;
-            background: var(--card-bg);
-            border: 1px solid var(--border-color);
-            border-radius: var(--radius-lg);
-            padding: 1rem 2rem;
-            margin-bottom: 2rem;
-        }
-        
-        #round-number {
-            font-size: 1.25rem;
-            font-weight: 600;
-        }
-        
-        #timer {
-            font-size: 2rem;
-            font-weight: 700;
-            color: var(--neon-cyan);
-            font-family: 'Monaco', monospace;
-        }
-        
-        #timer.warning {
-            color: var(--neon-orange);
-            animation: pulse 0.5s ease-in-out infinite;
-        }
-        
-        #timer.danger {
-            color: var(--neon-pink);
-            animation: pulse 0.3s ease-in-out infinite;
-        }
-        
-        @keyframes pulse {
-            0%, 100% { opacity: 1; }
-            50% { opacity: 0.5; }
-        }
-        
-        #audio-player {
-            display: flex;
-            flex-direction: column;
-            align-items: center;
-            margin: 2rem 0;
-        }
-        
-        .track-image {
-            width: 200px;
-            height: 200px;
-            border-radius: var(--radius-lg);
-            object-fit: cover;
-            margin-bottom: 1rem;
-            transition: filter 0.5s ease;
-        }
-        
-        .track-image.blur {
-            filter: blur(20px) brightness(0.5);
-        }
-        
-        .track-image.revealed {
-            filter: none;
-        }
-        
-        #answer-form {
-            display: flex;
-            gap: 1rem;
-            max-width: 500px;
-            margin: 2rem auto;
-        }
-        
-        #answer-form input {
-            flex: 1;
-        }
-        
-        #answer-form.disabled input,
-        #answer-form.disabled button {
-            opacity: 0.5;
-            pointer-events: none;
-        }
-        
-        .answer-feedback {
-            text-align: center;
-            padding: 1rem;
-            border-radius: var(--radius-md);
-            margin: 1rem 0;
-            font-weight: 600;
-        }
-        
-        .answer-feedback.correct {
-            background: rgba(0, 255, 136, 0.1);
-            border: 1px solid var(--neon-green);
-            color: var(--neon-green);
-        }
-        
-        .answer-feedback.wrong {
-            background: rgba(255, 107, 107, 0.1);
-            border: 1px solid var(--neon-pink);
-            color: var(--neon-pink);
-        }
-        
-        .reveal-card {
-            background: var(--card-bg);
-            border: 1px solid var(--border-color);
-            border-radius: var(--radius-lg);
-            padding: 2rem;
-            text-align: center;
-            margin: 2rem 0;
-        }
-        
-        .reveal-card img {
-            width: 150px;
-            height: 150px;
-            border-radius: var(--radius-md);
-            margin-bottom: 1rem;
-        }
-        
-        .reveal-card h3 {
-            color: var(--neon-cyan);
-            margin-bottom: 0.5rem;
-        }
-        
-        .reveal-card p {
-            color: var(--text-muted);
-        }
-        
-        .player-found-alert {
-            background: rgba(0, 255, 136, 0.1);
-            border: 1px solid var(--neon-green);
-            border-radius: var(--radius-md);
-            padding: 1rem;
-            margin: 1rem 0;
-            text-align: center;
-            animation: slideIn 0.3s ease-out;
-        }
-        
-        @keyframes slideIn {
-            from { transform: translateY(-20px); opacity: 0; }
-            to { transform: translateY(0); opacity: 1; }
-        }
-        
-        .score-row {
-            display: flex;
-            justify-content: space-between;
-            padding: 0.5rem;
-            border-bottom: 1px solid var(--border-color);
-        }
-        
-        .score-row:last-child {
-            border-bottom: none;
-        }
-        
-        .score-rank {
-            width: 30px;
-            color: var(--text-muted);
-        }
-        
-        .score-player {
-            flex: 1;
-        }
-        
-        .score-value {
-            color: var(--neon-cyan);
-            font-weight: 600;
-        }
-        
-        .game-end {
-            text-align: center;
-            padding: 2rem;
-        }
-        
-        .winner-card {
-            background: linear-gradient(135deg, rgba(255, 215, 0, 0.1), rgba(255, 165, 0, 0.1));
-            border: 2px solid gold;
-            border-radius: var(--radius-lg);
-            padding: 2rem;
-            margin: 2rem auto;
-            max-width: 400px;
-        }
-        
-        .trophy {
-            font-size: 4rem;
-            margin-bottom: 1rem;
-        }
-        
-        .winner-name {
-            font-size: 1.5rem;
-            font-weight: 700;
-            color: gold;
-        }
-        
-        .winner-score {
-            color: var(--text-muted);
-            margin-top: 0.5rem;
-        }
-        
-        /* Loading indicator amélioré */
-        .loading-overlay {
-            position: fixed;
-            top: 0;
-            left: 0;
-            right: 0;
-            bottom: 0;
-            background: rgba(0, 0, 0, 0.8);
-            display: flex;
-            flex-direction: column;
-            align-items: center;
-            justify-content: center;
-            z-index: 1000;
-            opacity: 0;
-            visibility: hidden;
-            transition: opacity 0.2s, visibility 0.2s;
-        }
-        
-        .loading-overlay.visible {
-            opacity: 1;
-            visibility: visible;
-        }
-        
-        .loading-spinner {
-            width: 60px;
-            height: 60px;
-            border: 4px solid rgba(255, 255, 255, 0.1);
-            border-top-color: var(--neon-cyan);
-            border-radius: 50%;
-            animation: spin 0.8s linear infinite;
-        }
-        
-        .loading-text {
-            margin-top: 1rem;
-            color: var(--neon-cyan);
-            font-size: 1.2rem;
-        }
-        
-        .loading-progress {
-            width: 200px;
-            height: 4px;
-            background: rgba(255, 255, 255, 0.1);
-            border-radius: 2px;
-            margin-top: 1rem;
-            overflow: hidden;
-        }
-        
-        .loading-progress-bar {
-            height: 100%;
-            background: var(--neon-cyan);
-            width: 0%;
-            transition: width 0.3s;
-        }
-        
-        @keyframes spin {
-            to { transform: rotate(360deg); }
-        }
-        
-        .hidden {
-            display: none !important;
-        }
-        
-        /* Audio controls custom */
-        .audio-controls {
-            display: flex;
-            align-items: center;
-            gap: 1rem;
-            background: rgba(255, 255, 255, 0.05);
-            padding: 1rem 2rem;
-            border-radius: var(--radius-lg);
-            margin-top: 1rem;
-        }
-        
-        .play-btn {
-            width: 60px;
-            height: 60px;
-            border-radius: 50%;
-            background: var(--neon-cyan);
-            border: none;
-            cursor: pointer;
-            display: flex;
-            align-items: center;
-            justify-content: center;
-            transition: transform 0.2s, background 0.2s;
-        }
-        
-        .play-btn:hover {
-            transform: scale(1.1);
-            background: var(--neon-green);
-        }
-        
-        .play-btn:disabled {
-            opacity: 0.5;
-            cursor: not-allowed;
-            transform: none;
-        }
-        
-        .progress-bar {
-            flex: 1;
-            height: 8px;
-            background: rgba(255, 255, 255, 0.1);
-            border-radius: 4px;
-            overflow: hidden;
-            cursor: pointer;
-        }
-        
-        .progress-fill {
-            height: 100%;
-            background: linear-gradient(90deg, var(--neon-cyan), var(--neon-green));
-            width: 0%;
-            transition: width 0.1s linear;
-        }
-        
-        .volume-control {
-            display: flex;
-            align-items: center;
-            gap: 0.5rem;
-        }
-        
-        .volume-slider {
-            width: 80px;
-            background: rgba(255, 255, 255, 0.1);
-            height: 4px;
-            border-radius: 2px;
-            outline: none;
-        }
-        
-        .volume-slider::-webkit-slider-thumb {
-            -webkit-appearance: none;
-            width: 14px;
-            height: 14px;
-            background: var(--neon-cyan);
-            border-radius: 50%;
-            cursor: pointer;
-        }
-        
-        /* Indicateur de connexion */
-        .connection-status {
-            position: fixed;
-            top: 80px;
-            right: 20px;
-            padding: 0.5rem 1rem;
-            border-radius: var(--radius-md);
-            font-size: 0.875rem;
-            z-index: 100;
-            display: flex;
-            align-items: center;
-            gap: 0.5rem;
-        }
-        
-        .connection-status.connected {
-            background: rgba(0, 255, 136, 0.1);
-            border: 1px solid var(--neon-green);
-            color: var(--neon-green);
-        }
-        
-        .connection-status.disconnected {
-            background: rgba(255, 107, 107, 0.1);
-            border: 1px solid var(--neon-pink);
-            color: var(--neon-pink);
-        }
-        
-        .connection-status.connecting {
-            background: rgba(255, 165, 0, 0.1);
-            border: 1px solid var(--neon-orange);
-            color: var(--neon-orange);
-        }
-        
-        .status-dot {
-            width: 8px;
-            height: 8px;
-            border-radius: 50%;
-            background: currentColor;
-        }
-        
-        .status-dot.pulsing {
-            animation: statusPulse 1s ease-in-out infinite;
-        }
-        
-        @keyframes statusPulse {
-            0%, 100% { opacity: 1; }
-            50% { opacity: 0.3; }
-        }
+        #round-info { display: flex; justify-content: space-between; align-items: center; background: var(--card-bg); border: 1px solid var(--border-color); border-radius: var(--radius-lg); padding: 1rem 2rem; margin-bottom: 2rem; }
+        #round-number { font-size: 1.25rem; font-weight: 600; }
+        #timer { font-size: 2rem; font-weight: 700; color: var(--neon-cyan); font-family: 'Monaco', monospace; }
+        #timer.warning { color: var(--neon-orange); animation: pulse 0.5s ease-in-out infinite; }
+        #timer.danger { color: var(--neon-pink); animation: pulse 0.3s ease-in-out infinite; }
+        @keyframes pulse { 0%, 100% { opacity: 1; } 50% { opacity: 0.5; } }
+        #audio-player { display: flex; flex-direction: column; align-items: center; margin: 2rem 0; }
+        .track-image { width: 200px; height: 200px; border-radius: var(--radius-lg); object-fit: cover; margin-bottom: 1rem; transition: filter 0.5s ease; }
+        .track-image.blur { filter: blur(20px) brightness(0.5); }
+        .track-image.revealed { filter: none; }
+        #answer-form { display: flex; gap: 1rem; max-width: 500px; margin: 2rem auto; }
+        #answer-form input { flex: 1; }
+        #answer-form.disabled input, #answer-form.disabled button { opacity: 0.5; pointer-events: none; }
+        .answer-feedback { text-align: center; padding: 1rem; border-radius: var(--radius-md); margin: 1rem 0; font-weight: 600; }
+        .answer-feedback.correct { background: rgba(0, 255, 136, 0.1); border: 1px solid var(--neon-green); color: var(--neon-green); }
+        .answer-feedback.wrong { background: rgba(255, 107, 107, 0.1); border: 1px solid var(--neon-pink); color: var(--neon-pink); }
+        .reveal-card { background: var(--card-bg); border: 1px solid var(--border-color); border-radius: var(--radius-lg); padding: 2rem; text-align: center; margin: 2rem 0; }
+        .reveal-card img { width: 150px; height: 150px; border-radius: var(--radius-md); margin-bottom: 1rem; }
+        .reveal-card h3 { color: var(--neon-cyan); margin-bottom: 0.5rem; }
+        .reveal-card p { color: var(--text-muted); }
+        .player-found-alert { background: rgba(0, 255, 136, 0.1); border: 1px solid var(--neon-green); border-radius: var(--radius-md); padding: 1rem; margin: 1rem 0; text-align: center; animation: slideIn 0.3s ease-out; }
+        @keyframes slideIn { from { transform: translateY(-20px); opacity: 0; } to { transform: translateY(0); opacity: 1; } }
+        .score-row { display: flex; justify-content: space-between; padding: 0.5rem; border-bottom: 1px solid var(--border-color); }
+        .score-row:last-child { border-bottom: none; }
+        .score-rank { width: 30px; color: var(--text-muted); }
+        .score-player { flex: 1; }
+        .score-value { color: var(--neon-cyan); font-weight: 600; }
+        .game-end { text-align: center; padding: 2rem; }
+        .winner-card { background: linear-gradient(135deg, rgba(255, 215, 0, 0.1), rgba(255, 165, 0, 0.1)); border: 2px solid gold; border-radius: var(--radius-lg); padding: 2rem; margin: 2rem auto; max-width: 400px; }
+        .trophy { font-size: 4rem; margin-bottom: 1rem; }
+        .winner-name { font-size: 1.5rem; font-weight: 700; color: gold; }
+        .winner-score { color: var(--text-muted); margin-top: 0.5rem; }
+        .loading-overlay { position: fixed; top: 0; left: 0; right: 0; bottom: 0; background: rgba(0, 0, 0, 0.8); display: flex; flex-direction: column; align-items: center; justify-content: center; z-index: 1000; opacity: 0; visibility: hidden; transition: opacity 0.2s, visibility 0.2s; }
+        .loading-overlay.visible { opacity: 1; visibility: visible; }
+        .loading-spinner { width: 60px; height: 60px; border: 4px solid rgba(255, 255, 255, 0.1); border-top-color: var(--neon-cyan); border-radius: 50%; animation: spin 0.8s linear infinite; }
+        .loading-text { margin-top: 1rem; color: var(--neon-cyan); font-size: 1.2rem; }
+        .loading-progress { width: 200px; height: 4px; background: rgba(255, 255, 255, 0.1); border-radius: 2px; margin-top: 1rem; overflow: hidden; }
+        .loading-progress-bar { height: 100%; background: var(--neon-cyan); width: 0%; transition: width 0.3s; }
+        @keyframes spin { to { transform: rotate(360deg); } }
+        .hidden { display: none !important; }
+        .audio-controls { display: flex; align-items: center; gap: 1rem; background: rgba(255, 255, 255, 0.05); padding: 1rem 2rem; border-radius: var(--radius-lg); margin-top: 1rem; }
+        .play-btn { width: 60px; height: 60px; border-radius: 50%; background: var(--neon-cyan); border: none; cursor: pointer; display: flex; align-items: center; justify-content: center; transition: transform 0.2s, background 0.2s; }
+        .play-btn:hover { transform: scale(1.1); background: var(--neon-green); }
+        .play-btn:disabled { opacity: 0.5; cursor: not-allowed; transform: none; }
+        .progress-bar { flex: 1; height: 8px; background: rgba(255, 255, 255, 0.1); border-radius: 4px; overflow: hidden; cursor: pointer; }
+        .progress-fill { height: 100%; background: linear-gradient(90deg, var(--neon-cyan), var(--neon-green)); width: 0%; transition: width 0.1s linear; }
+        .volume-control { display: flex; align-items: center; gap: 0.5rem; }
+        .volume-slider { width: 80px; background: rgba(255, 255, 255, 0.1); height: 4px; border-radius: 2px; outline: none; }
+        .connection-status { position: fixed; top: 80px; right: 20px; padding: 0.5rem 1rem; border-radius: var(--radius-md); font-size: 0.875rem; z-index: 100; display: flex; align-items: center; gap: 0.5rem; }
+        .connection-status.connected { background: rgba(0, 255, 136, 0.1); border: 1px solid var(--neon-green); color: var(--neon-green); }
+        .connection-status.disconnected { background: rgba(255, 107, 107, 0.1); border: 1px solid var(--neon-pink); color: var(--neon-pink); }
+        .connection-status.connecting { background: rgba(255, 165, 0, 0.1); border: 1px solid var(--neon-orange); color: var(--neon-orange); }
+        .status-dot { width: 8px; height: 8px; border-radius: 50%; background: currentColor; }
+        .status-dot.pulsing { animation: statusPulse 1s ease-in-out infinite; }
+        @keyframes statusPulse { 0%, 100% { opacity: 1; } 50% { opacity: 0.3; } }
+        #debug-panel { position: fixed; bottom: 10px; left: 10px; background: rgba(0,0,0,0.95); border: 1px solid var(--neon-cyan); border-radius: 8px; padding: 10px; font-size: 11px; font-family: monospace; max-width: 500px; max-height: 250px; overflow-y: auto; z-index: 9999; display: none; }
+        #debug-panel.visible { display: block; }
+        #debug-panel .msg-in { color: #0f0; }
+        #debug-panel .msg-out { color: #0ff; }
+        #debug-panel .msg-error { color: #f55; }
+        #debug-panel .msg-info { color: #ff0; }
     </style>
 </head>
 <body>
-    <!-- Navigation -->
     <nav class="navbar">
-        <a href="/" class="navbar-brand">
-            <span class="icon icon-music icon-md"></span>
-            <span>Groupie Tracker</span>
-        </a>
-        
-        <ul class="navbar-nav">
-            <li><a href="/">Accueil</a></li>
-            <li><a href="/rooms">Salles</a></li>
-        </ul>
-
+        <a href="/" class="navbar-brand"><span class="icon icon-music icon-md"></span><span>Groupie Tracker</span></a>
+        <ul class="navbar-nav"><li><a href="/">Accueil</a></li><li><a href="/rooms">Salles</a></li></ul>
         <div class="navbar-user">
-            <div class="user-info">
-                <div class="avatar">{{slice .User.Pseudo 0 1}}</div>
-                <span>{{.User.Pseudo}}</span>
-            </div>
+            <div class="user-info"><div class="avatar">{{slice .User.Pseudo 0 1}}</div><span>{{.User.Pseudo}}</span></div>
             <a href="/logout" class="btn btn-secondary btn-sm">Déconnexion</a>
         </div>
     </nav>
 
-    <!-- Indicateur de connexion -->
     <div id="connection-status" class="connection-status connecting">
         <span class="status-dot pulsing"></span>
         <span id="connection-text">Connexion...</span>
     </div>
 
-    <!-- Loading overlay amélioré -->
+    <div id="debug-panel"><strong>🔧 Debug WS (D pour toggle)</strong><hr><div id="debug-messages"></div></div>
+
     <div id="loading-overlay" class="loading-overlay">
         <div class="loading-spinner"></div>
         <div class="loading-text" id="loading-text">Chargement...</div>
-        <div class="loading-progress">
-            <div class="loading-progress-bar" id="loading-progress"></div>
-        </div>
+        <div class="loading-progress"><div class="loading-progress-bar" id="loading-progress"></div></div>
     </div>
 
-    <!-- Page de salle -->
     <div class="room-page">
-        <!-- Zone principale -->
         <div class="room-main">
-            <!-- Header de la salle -->
             <div class="room-header">
                 <div class="room-title">
-                    <h1>
-                        <span class="icon icon-headphones icon-lg"></span>
-                        {{.Room.Name}}
-                    </h1>
-                    <span class="badge badge-primary">
-                        <span class="icon icon-headphones icon-xs"></span>
-                        Blind Test
-                    </span>
+                    <h1><span class="icon icon-headphones icon-lg"></span>{{.Room.Name}}</h1>
+                    <span class="badge badge-primary"><span class="icon icon-headphones icon-xs"></span>Blind Test</span>
                 </div>
-                
                 <div class="room-code-display" onclick="copyRoomCode('{{.Room.Code}}')" title="Cliquez pour copier">
-                    <span class="icon icon-key icon-sm"></span>
-                    <code>{{.Room.Code}}</code>
-                    <span class="icon icon-copy icon-sm copy-icon"></span>
+                    <span class="icon icon-key icon-sm"></span><code>{{.Room.Code}}</code><span class="icon icon-copy icon-sm copy-icon"></span>
                 </div>
             </div>
 
-            <!-- Zone de jeu -->
             <div id="game-container">
-                <!-- État: En attente -->
                 <div id="waiting-state" class="card" style="text-align: center; padding: 3rem;">
-                    <div class="game-icon" style="margin-bottom: 2rem;">
-                        <span class="icon icon-headphones icon-xxl" style="filter: drop-shadow(0 0 20px var(--primary-glow));"></span>
-                    </div>
+                    <div class="game-icon" style="margin-bottom: 2rem;"><span class="icon icon-headphones icon-xxl"></span></div>
                     <h2>En attente des joueurs...</h2>
-                    <p class="text-muted mb-lg">
-                        Partagez le code <strong style="color: var(--neon-cyan);">{{.Room.Code}}</strong> avec vos amis !
-                    </p>
-                    
+                    <p class="text-muted mb-lg">Partagez le code <strong style="color: var(--neon-cyan);">{{.Room.Code}}</strong> avec vos amis !</p>
                     {{if .Player.IsHost}}
                     <div class="mt-xl">
-                        <button class="btn btn-success btn-lg" id="start-btn" onclick="startGame()" disabled>
-                            <span class="icon icon-play icon-sm"></span>
-                            <span>Lancer la partie</span>
-                        </button>
-                        <p class="text-muted mt-md" id="start-hint">
-                            Tous les joueurs doivent être prêts pour lancer la partie
-                        </p>
+                        <button class="btn btn-success btn-lg" id="start-btn" onclick="startGame()" disabled><span class="icon icon-play icon-sm"></span><span>Lancer la partie</span></button>
+                        <p class="text-muted mt-md" id="start-hint">Tous les joueurs doivent être prêts</p>
                     </div>
                     {{else}}
                     <div class="mt-xl">
-                        <button class="btn btn-primary btn-lg" id="ready-btn" onclick="toggleReady()">
-                            <span class="icon icon-check icon-sm"></span>
-                            <span id="ready-text">Je suis prêt !</span>
-                        </button>
+                        <button class="btn btn-primary btn-lg" id="ready-btn" onclick="toggleReady()"><span class="icon icon-check icon-sm"></span><span id="ready-text">Je suis prêt !</span></button>
                     </div>
                     {{end}}
                 </div>
 
-                <!-- État: Partie en cours -->
                 <div id="playing-state" class="hidden">
-                    <div id="round-info">
-                        <span id="round-number">Manche 1/10</span>
-                        <span id="timer">30s</span>
-                    </div>
-
+                    <div id="round-info"><span id="round-number">Manche 1/10</span><span id="timer">30s</span></div>
                     <div id="audio-player">
                         <img src="/static/img/album-placeholder.png" alt="Album" class="track-image blur" id="track-image">
-                        
-                        <!-- Contrôles audio custom -->
                         <div class="audio-controls">
-                            <button class="play-btn" id="play-btn" onclick="togglePlay()">
-                                <span class="icon icon-play icon-md" id="play-icon"></span>
-                            </button>
-                            <div class="progress-bar" id="progress-bar" onclick="seekAudio(event)">
-                                <div class="progress-fill" id="progress-fill"></div>
-                            </div>
-                            <div class="volume-control">
-                                <span class="icon icon-volume icon-sm"></span>
-                                <input type="range" class="volume-slider" id="volume-slider" min="0" max="100" value="80" onchange="setVolume(this.value)">
-                            </div>
+                            <button class="play-btn" id="play-btn" onclick="togglePlay()"><span class="icon icon-play icon-md" id="play-icon"></span></button>
+                            <div class="progress-bar" id="progress-bar" onclick="seekAudio(event)"><div class="progress-fill" id="progress-fill"></div></div>
+                            <div class="volume-control"><span class="icon icon-volume icon-sm"></span><input type="range" class="volume-slider" id="volume-slider" min="0" max="100" value="80" onchange="setVolume(this.value)"></div>
                         </div>
-                        
-                        <!-- Audio caché -->
                         <audio id="main-audio" preload="auto" crossorigin="anonymous"></audio>
-                        <audio id="preload-audio" preload="auto" crossorigin="anonymous" style="display: none;"></audio>
+                        <audio id="preload-audio" preload="auto" crossorigin="anonymous" style="display:none;"></audio>
                     </div>
-
                     <div id="answer-form">
-                        <input 
-                            type="text" 
-                            id="answer-input" 
-                            class="form-control"
-                            placeholder="Entrez le titre ou l'artiste..."
-                            autocomplete="off"
-                        >
-                        <button class="btn btn-primary btn-lg" id="submit-answer" onclick="submitAnswer()">
-                            <span class="icon icon-send icon-sm"></span>
-                            <span>Envoyer</span>
-                        </button>
+                        <input type="text" id="answer-input" class="form-control" placeholder="Entrez le titre ou l'artiste..." autocomplete="off">
+                        <button class="btn btn-primary btn-lg" id="submit-answer" onclick="submitAnswer()"><span class="icon icon-send icon-sm"></span><span>Envoyer</span></button>
                     </div>
-
                     <div id="answer-feedback" class="hidden"></div>
                     <div id="player-found-alerts"></div>
                     <div id="reveal-section" class="hidden"></div>
                 </div>
 
-                <!-- État: Partie terminée -->
                 <div id="finished-state" class="game-end hidden">
                     <h1>🎉 Partie Terminée !</h1>
-                    
-                    <div class="winner-card" id="winner-card">
-                        <div class="trophy">🏆</div>
-                        <div class="winner-name" id="winner-name">Chargement...</div>
-                        <div class="winner-score" id="winner-score"></div>
-                    </div>
-                    
-                    <div class="final-rankings" id="final-rankings">
-                        <h3>Classement Final</h3>
-                        <div id="final-scores"></div>
-                    </div>
-                    
+                    <div class="winner-card"><div class="trophy">🏆</div><div class="winner-name" id="winner-name">...</div><div class="winner-score" id="winner-score"></div></div>
+                    <div class="final-rankings"><h3>Classement Final</h3><div id="final-scores"></div></div>
                     <div class="room-actions mt-xl">
-                        {{if .Player.IsHost}}
-                        <button class="btn btn-primary btn-lg" onclick="restartGame()">
-                            <span class="icon icon-refresh icon-sm"></span>
-                            <span>Rejouer</span>
-                        </button>
-                        {{end}}
-                        <a href="/rooms" class="btn btn-secondary btn-lg">
-                            <span class="icon icon-arrow-left icon-sm"></span>
-                            <span>Retour aux salles</span>
-                        </a>
+                        {{if .Player.IsHost}}<button class="btn btn-primary btn-lg" onclick="restartGame()"><span class="icon icon-refresh icon-sm"></span><span>Rejouer</span></button>{{end}}
+                        <a href="/rooms" class="btn btn-secondary btn-lg"><span class="icon icon-arrow-left icon-sm"></span><span>Retour</span></a>
                     </div>
                 </div>
             </div>
         </div>
 
-        <!-- Panel des joueurs -->
         <div class="players-panel">
-            <h2>
-                <span class="icon icon-users icon-md"></span>
-                Joueurs (<span id="player-count">{{len .Room.Players}}</span>/8)
-            </h2>
-            
+            <h2><span class="icon icon-users icon-md"></span>Joueurs (<span id="player-count">{{len .Room.Players}}</span>/8)</h2>
             <div class="players-list" id="players-list">
                 {{range $userID, $player := .Room.Players}}
                 <div class="player-item {{if $player.IsHost}}is-host{{end}} {{if eq $userID $.User.ID}}is-self{{end}}" data-user-id="{{$userID}}">
-                    <div class="player-avatar">
-                        {{slice $player.Pseudo 0 1}}
-                    </div>
+                    <div class="player-avatar">{{slice $player.Pseudo 0 1}}</div>
                     <div class="player-info">
-                        <div class="player-name">
-                            {{$player.Pseudo}}
-                            {{if $player.IsHost}}
-                            <span class="icon icon-crown icon-xs crown" title="Hôte"></span>
-                            {{end}}
-                        </div>
-                        <div class="player-status">
-                            {{if $player.IsReady}}
-                            <span class="text-success">Prêt</span>
-                            {{else}}
-                            <span class="text-muted">En attente</span>
-                            {{end}}
-                        </div>
+                        <div class="player-name">{{$player.Pseudo}}{{if $player.IsHost}}<span class="icon icon-crown icon-xs crown"></span>{{end}}</div>
+                        <div class="player-status">{{if $player.IsReady}}<span class="text-success">Prêt</span>{{else}}<span class="text-muted">En attente</span>{{end}}</div>
                     </div>
-                    <div class="player-ready-icon {{if $player.IsReady}}ready{{else}}not-ready{{end}}">
-                        {{if $player.IsReady}}
-                        <span class="icon icon-check icon-sm"></span>
-                        {{else}}
-                        <span class="icon icon-timer icon-sm"></span>
-                        {{end}}
-                    </div>
+                    <div class="player-ready-icon {{if $player.IsReady}}ready{{else}}not-ready{{end}}">{{if $player.IsReady}}<span class="icon icon-check icon-sm"></span>{{else}}<span class="icon icon-timer icon-sm"></span>{{end}}</div>
                 </div>
                 {{end}}
             </div>
-
-            <!-- Scoreboard -->
-            <div class="scoreboard hidden" id="scoreboard">
-                <h3>
-                    <span class="icon icon-trophy icon-sm"></span>
-                    Scores
-                </h3>
-                <div class="scoreboard-list" id="scoreboard-list"></div>
-            </div>
-
-            <!-- Bouton quitter -->
-            <div class="mt-lg">
-                <button class="btn btn-danger btn-block" onclick="leaveRoom()">
-                    <span class="icon icon-door icon-sm"></span>
-                    <span>Quitter la salle</span>
-                </button>
-            </div>
+            <div class="scoreboard hidden" id="scoreboard"><h3><span class="icon icon-trophy icon-sm"></span>Scores</h3><div class="scoreboard-list" id="scoreboard-list"></div></div>
+            <div class="mt-lg"><button class="btn btn-danger btn-block" onclick="leaveRoom()"><span class="icon icon-door icon-sm"></span><span>Quitter</span></button></div>
         </div>
     </div>
 
-    <!-- Toast container -->
     <div class="toast-container" id="toastContainer"></div>
 
     <script>
     // =========================================================================
-    // CONFIGURATION ET CONSTANTES
+    // CONFIGURATION
     // =========================================================================
+    const DEBUG = true;
     const CONFIG = {
         WS_RECONNECT_DELAY: 1000,
         WS_MAX_RECONNECT_ATTEMPTS: 10,
         AUDIO_PRELOAD_TIMEOUT: 8000,
-        AUDIO_PLAY_RETRY_DELAY: 100,
-        AUDIO_PLAY_MAX_RETRIES: 30,
         TOAST_DURATION: 3000
     };
 
@@ -639,240 +194,142 @@
     let ws = null;
     let wsConnected = false;
     let wsReconnectAttempts = 0;
-    let wsReconnectTimer = null;
 
     const roomCode = '{{.Room.Code}}';
-    const roomId = '{{.Room.ID}}';
     const currentUserId = '{{.User.ID}}';
     let roomStatus = '{{.Room.Status}}';
     const isHost = '{{.Player.IsHost}}' === 'true';
     let isReady = '{{.Player.IsReady}}' === 'true';
 
-    // État du jeu
-    let gameState = {
-        hasAnsweredCorrectly: false,
-        currentRound: 0,
-        totalRounds: 10,
-        isRoundActive: false,
-        isRevealed: false
-    };
-
-    // État audio
-    let audioState = {
-        isPlaying: false,
-        isPreloaded: false,
-        preloadedUrl: null,
-        currentUrl: null,
-        volume: 0.8
-    };
-
-    // Éléments DOM mis en cache
-    let DOM = {};
+    let gameState = { hasAnsweredCorrectly: false, currentRound: 0, totalRounds: 10, isRoundActive: false, isRevealed: false };
+    let audioState = { isPlaying: false, isPreloaded: false, preloadedUrl: null, volume: 0.8 };
 
     // =========================================================================
-    // INITIALISATION DOM
+    // DEBUG FUNCTIONS
     // =========================================================================
-    function initDOM() {
-        DOM = {
-            // Loading
-            loadingOverlay: document.getElementById('loading-overlay'),
-            loadingText: document.getElementById('loading-text'),
-            loadingProgress: document.getElementById('loading-progress'),
-            
-            // Connection
-            connectionStatus: document.getElementById('connection-status'),
-            connectionText: document.getElementById('connection-text'),
-            
-            // States
-            waitingState: document.getElementById('waiting-state'),
-            playingState: document.getElementById('playing-state'),
-            finishedState: document.getElementById('finished-state'),
-            
-            // Game UI
-            roundNumber: document.getElementById('round-number'),
-            timer: document.getElementById('timer'),
-            trackImage: document.getElementById('track-image'),
-            answerForm: document.getElementById('answer-form'),
-            answerInput: document.getElementById('answer-input'),
-            submitAnswer: document.getElementById('submit-answer'),
-            answerFeedback: document.getElementById('answer-feedback'),
-            playerFoundAlerts: document.getElementById('player-found-alerts'),
-            revealSection: document.getElementById('reveal-section'),
-            
-            // Audio
-            mainAudio: document.getElementById('main-audio'),
-            preloadAudio: document.getElementById('preload-audio'),
-            playBtn: document.getElementById('play-btn'),
-            playIcon: document.getElementById('play-icon'),
-            progressBar: document.getElementById('progress-bar'),
-            progressFill: document.getElementById('progress-fill'),
-            volumeSlider: document.getElementById('volume-slider'),
-            
-            // Scoreboard
-            scoreboard: document.getElementById('scoreboard'),
-            scoreboardList: document.getElementById('scoreboard-list'),
-            
-            // Players
-            playersList: document.getElementById('players-list'),
-            playerCount: document.getElementById('player-count'),
-            
-            // Buttons
-            startBtn: document.getElementById('start-btn'),
-            startHint: document.getElementById('start-hint'),
-            readyBtn: document.getElementById('ready-btn'),
-            readyText: document.getElementById('ready-text'),
-            
-            // End game
-            winnerName: document.getElementById('winner-name'),
-            winnerScore: document.getElementById('winner-score'),
-            finalScores: document.getElementById('final-scores')
-        };
+    function debugLog(type, message, data = null) {
+        if (!DEBUG) return;
+        const panel = document.getElementById('debug-messages');
+        const time = new Date().toLocaleTimeString();
+        const classes = { in: 'msg-in', out: 'msg-out', error: 'msg-error', info: 'msg-info' };
+        const line = document.createElement('div');
+        line.className = classes[type] || 'msg-info';
+        line.textContent = `[${time}] ${message}`;
+        if (data) line.textContent += `: ${JSON.stringify(data).substring(0, 100)}`;
+        panel.appendChild(line);
+        panel.scrollTop = panel.scrollHeight;
+        console.log(`[${type.toUpperCase()}]`, message, data || '');
     }
 
+    document.addEventListener('keydown', (e) => {
+        if (e.key === 'd' || e.key === 'D') {
+            document.getElementById('debug-panel').classList.toggle('visible');
+        }
+    });
+
     // =========================================================================
-    // UTILITAIRES
+    // TOAST & UI
     // =========================================================================
-    function showToast(message, type = 'info', duration = CONFIG.TOAST_DURATION) {
-        const container = document.getElementById('toastContainer') || createToastContainer();
-        
+    function showToast(message, type = 'info') {
+        const container = document.getElementById('toastContainer');
         const toast = document.createElement('div');
         toast.className = `toast toast-${type}`;
-        
-        const icons = { success: '✓', error: '✕', warning: '⚠', info: 'ℹ' };
-        toast.innerHTML = `
-            <span class="toast-icon">${icons[type] || icons.info}</span>
-            <span class="toast-message">${message}</span>
-        `;
-        
+        toast.innerHTML = `<span>${message}</span>`;
         container.appendChild(toast);
-        
-        setTimeout(() => {
-            toast.classList.add('toast-exit');
-            setTimeout(() => toast.remove(), 300);
-        }, duration);
-    }
-
-    function createToastContainer() {
-        const container = document.createElement('div');
-        container.className = 'toast-container';
-        container.id = 'toastContainer';
-        document.body.appendChild(container);
-        return container;
+        setTimeout(() => { toast.remove(); }, CONFIG.TOAST_DURATION);
     }
 
     function showLoading(show, text = 'Chargement...', progress = 0) {
-        if (show) {
-            DOM.loadingText.textContent = text;
-            DOM.loadingProgress.style.width = progress + '%';
-            DOM.loadingOverlay.classList.add('visible');
-        } else {
-            DOM.loadingOverlay.classList.remove('visible');
-        }
+        const overlay = document.getElementById('loading-overlay');
+        document.getElementById('loading-text').textContent = text;
+        document.getElementById('loading-progress').style.width = progress + '%';
+        overlay.classList.toggle('visible', show);
     }
 
     function updateConnectionStatus(status) {
-        DOM.connectionStatus.className = `connection-status ${status}`;
-        const statusDot = DOM.connectionStatus.querySelector('.status-dot');
-        
-        switch(status) {
-            case 'connected':
-                DOM.connectionText.textContent = 'Connecté';
-                statusDot.classList.remove('pulsing');
-                break;
-            case 'disconnected':
-                DOM.connectionText.textContent = 'Déconnecté';
-                statusDot.classList.add('pulsing');
-                break;
-            case 'connecting':
-                DOM.connectionText.textContent = 'Connexion...';
-                statusDot.classList.add('pulsing');
-                break;
-        }
+        const el = document.getElementById('connection-status');
+        const text = document.getElementById('connection-text');
+        const dot = el.querySelector('.status-dot');
+        el.className = `connection-status ${status}`;
+        text.textContent = status === 'connected' ? 'Connecté' : status === 'connecting' ? 'Connexion...' : 'Déconnecté';
+        dot.classList.toggle('pulsing', status !== 'connected');
     }
 
     // =========================================================================
     // WEBSOCKET
     // =========================================================================
     function connectWebSocket() {
-        if (ws && ws.readyState === WebSocket.OPEN) {
-            console.log('[WS] Déjà connecté');
-            return;
-        }
-
-        updateConnectionStatus('connecting');
+        if (ws && ws.readyState === WebSocket.OPEN) return;
         
+        updateConnectionStatus('connecting');
         const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
         const wsUrl = `${protocol}//${window.location.host}/ws/room/${roomCode}`;
         
-        console.log('[WS] Connexion à:', wsUrl);
+        debugLog('info', 'Connexion WS', wsUrl);
         
-        try {
-            ws = new WebSocket(wsUrl);
+        ws = new WebSocket(wsUrl);
+        
+        ws.onopen = () => {
+            debugLog('info', 'WebSocket connecté');
+            wsConnected = true;
+            wsReconnectAttempts = 0;
+            updateConnectionStatus('connected');
+            showToast('Connecté !', 'success');
+        };
+        
+        ws.onclose = (e) => {
+            debugLog('error', 'WebSocket fermé', { code: e.code, reason: e.reason });
+            wsConnected = false;
+            updateConnectionStatus('disconnected');
+            if (wsReconnectAttempts < CONFIG.WS_MAX_RECONNECT_ATTEMPTS) {
+                wsReconnectAttempts++;
+                setTimeout(connectWebSocket, CONFIG.WS_RECONNECT_DELAY * wsReconnectAttempts);
+            }
+        };
+        
+        ws.onerror = (e) => debugLog('error', 'WebSocket erreur', e);
+        
+        ws.onmessage = (event) => {
+            const rawData = event.data;
             
-            ws.onopen = () => {
-                console.log('[WS] ✅ Connecté');
-                wsConnected = true;
-                wsReconnectAttempts = 0;
-                updateConnectionStatus('connected');
-                showToast('Connecté à la salle', 'success');
-            };
+            // Le serveur peut envoyer plusieurs messages JSON séparés par \n
+            // On split et parse chacun
+            const lines = rawData.split('\n').filter(line => line.trim());
             
-            ws.onclose = (event) => {
-                console.log('[WS] Fermé:', event.code, event.reason);
-                wsConnected = false;
-                updateConnectionStatus('disconnected');
-                
-                if (!event.wasClean && wsReconnectAttempts < CONFIG.WS_MAX_RECONNECT_ATTEMPTS) {
-                    scheduleReconnect();
-                }
-            };
-            
-            ws.onerror = (error) => {
-                console.error('[WS] ❌ Erreur:', error);
-                updateConnectionStatus('disconnected');
-            };
-            
-            ws.onmessage = (event) => {
+            for (const line of lines) {
                 try {
-                    const message = JSON.parse(event.data);
-                    handleWSMessage(message);
+                    const msg = JSON.parse(line);
+                    debugLog('in', `← ${msg.type}`, msg.payload);
+                    handleWSMessage(msg);
                 } catch (e) {
-                    console.error('[WS] Erreur parsing:', e);
+                    // Si une seule ligne et erreur, log l'erreur
+                    if (lines.length === 1) {
+                        debugLog('error', 'Parse error', e.message);
+                    }
                 }
-            };
-        } catch (error) {
-            console.error('[WS] Erreur création:', error);
-            scheduleReconnect();
-        }
-    }
-
-    function scheduleReconnect() {
-        if (wsReconnectTimer) clearTimeout(wsReconnectTimer);
-        
-        wsReconnectAttempts++;
-        const delay = Math.min(CONFIG.WS_RECONNECT_DELAY * wsReconnectAttempts, 10000);
-        
-        console.log(`[WS] Reconnexion dans ${delay}ms (tentative ${wsReconnectAttempts})`);
-        updateConnectionStatus('connecting');
-        
-        wsReconnectTimer = setTimeout(connectWebSocket, delay);
+            }
+        };
     }
 
     function sendWS(type, payload = {}) {
-        if (!wsConnected || !ws || ws.readyState !== WebSocket.OPEN) {
-            console.warn('[WS] Non connecté, impossible d\'envoyer:', type);
+        if (!ws || ws.readyState !== WebSocket.OPEN) {
+            debugLog('error', 'WS non connecté');
+            showToast('Non connecté', 'error');
             return false;
         }
-        
-        const message = { type, payload };
-        ws.send(JSON.stringify(message));
-        console.log('[WS] 📤 Envoyé:', type);
+        const msg = { type, payload };
+        debugLog('out', `→ ${type}`, payload);
+        ws.send(JSON.stringify(msg));
         return true;
     }
 
-    function handleWSMessage(message) {
-        console.log('[WS] 📨 Reçu:', message.type, message);
+    // =========================================================================
+    // MESSAGE HANDLERS - Types EXACTS du backend
+    // =========================================================================
+    function handleWSMessage(msg) {
+        const payload = msg.payload || {};
         
+        // Liste des handlers - DOIT correspondre EXACTEMENT aux constantes Go
         const handlers = {
             // Salle
             'player_ready': onPlayerReady,
@@ -891,243 +348,69 @@
             'bt_scores': onScoresUpdate,
             'bt_game_end': onGameEnd,
             
-            // Erreurs
-            'error': (data) => showToast(data.error || message.error || 'Erreur', 'error'),
-            'pong': () => {} // Silencieux
+            // Autres
+            'error': (p) => showToast(p.error || msg.error || 'Erreur', 'error'),
+            'pong': () => {}
         };
         
-        const handler = handlers[message.type];
+        const handler = handlers[msg.type];
         if (handler) {
-            handler(message.payload || message);
+            try { handler(payload); }
+            catch (e) { debugLog('error', `Handler error: ${msg.type}`, e); }
         } else {
-            console.log('[WS] Message non géré:', message.type);
+            debugLog('error', `Type inconnu: ${msg.type}`);
         }
     }
 
     // =========================================================================
-    // GESTION AUDIO OPTIMISÉE
-    // =========================================================================
-    function preloadAudio(url) {
-        return new Promise((resolve, reject) => {
-            if (!url) {
-                reject(new Error('URL audio manquante'));
-                return;
-            }
-            
-            console.log('[Audio] 🔄 Préchargement:', url.substring(0, 50) + '...');
-            
-            const audio = DOM.preloadAudio;
-            let resolved = false;
-            
-            const cleanup = () => {
-                audio.oncanplaythrough = null;
-                audio.onerror = null;
-                audio.onloadeddata = null;
-            };
-            
-            const timeoutId = setTimeout(() => {
-                if (!resolved) {
-                    console.warn('[Audio] ⏱️ Timeout préchargement, on continue');
-                    cleanup();
-                    resolved = true;
-                    resolve(false);
-                }
-            }, CONFIG.AUDIO_PRELOAD_TIMEOUT);
-            
-            audio.oncanplaythrough = () => {
-                if (!resolved) {
-                    clearTimeout(timeoutId);
-                    cleanup();
-                    console.log('[Audio] ✅ Préchargé avec succès');
-                    audioState.isPreloaded = true;
-                    audioState.preloadedUrl = url;
-                    resolved = true;
-                    resolve(true);
-                }
-            };
-            
-            audio.onloadeddata = () => {
-                // Le fichier est chargé, on peut commencer à jouer même si pas entièrement buffered
-                if (!resolved && audio.readyState >= 2) {
-                    clearTimeout(timeoutId);
-                    cleanup();
-                    console.log('[Audio] ✅ Données chargées');
-                    audioState.isPreloaded = true;
-                    audioState.preloadedUrl = url;
-                    resolved = true;
-                    resolve(true);
-                }
-            };
-            
-            audio.onerror = (e) => {
-                if (!resolved) {
-                    clearTimeout(timeoutId);
-                    cleanup();
-                    console.error('[Audio] ❌ Erreur préchargement:', e);
-                    resolved = true;
-                    resolve(false);
-                }
-            };
-            
-            // Charger
-            audio.src = url;
-            audio.load();
-        });
-    }
-
-    async function playAudio(url) {
-        const audio = DOM.mainAudio;
-        
-        // Si c'est le même URL préchargé, copier depuis preload
-        if (audioState.preloadedUrl === url && audioState.isPreloaded) {
-            console.log('[Audio] 🎵 Utilisation audio préchargé');
-            audio.src = url;
-        } else {
-            console.log('[Audio] 🎵 Chargement direct');
-            audio.src = url;
-        }
-        
-        audioState.currentUrl = url;
-        audio.volume = audioState.volume;
-        
-        // Tenter de jouer avec retries
-        let retries = 0;
-        const tryPlay = async () => {
-            try {
-                await audio.play();
-                audioState.isPlaying = true;
-                updatePlayButton(true);
-                console.log('[Audio] ▶️ Lecture démarrée');
-                return true;
-            } catch (e) {
-                if (e.name === 'NotAllowedError') {
-                    console.log('[Audio] Autoplay bloqué, clic utilisateur requis');
-                    showToast('Cliquez sur ▶️ pour écouter', 'info');
-                    return false;
-                } else if (retries < CONFIG.AUDIO_PLAY_MAX_RETRIES) {
-                    retries++;
-                    await new Promise(r => setTimeout(r, CONFIG.AUDIO_PLAY_RETRY_DELAY));
-                    return tryPlay();
-                } else {
-                    console.error('[Audio] ❌ Impossible de jouer:', e);
-                    showToast('Erreur audio, cliquez sur ▶️', 'warning');
-                    return false;
-                }
-            }
-        };
-        
-        return tryPlay();
-    }
-
-    function stopAudio() {
-        const audio = DOM.mainAudio;
-        audio.pause();
-        audio.currentTime = 0;
-        audioState.isPlaying = false;
-        updatePlayButton(false);
-    }
-
-    function togglePlay() {
-        const audio = DOM.mainAudio;
-        
-        if (audioState.isPlaying) {
-            audio.pause();
-            audioState.isPlaying = false;
-            updatePlayButton(false);
-        } else {
-            audio.play().then(() => {
-                audioState.isPlaying = true;
-                updatePlayButton(true);
-            }).catch(e => {
-                console.error('[Audio] Erreur play:', e);
-                showToast('Impossible de lire l\'audio', 'error');
-            });
-        }
-    }
-
-    function updatePlayButton(playing) {
-        if (DOM.playIcon) {
-            DOM.playIcon.className = playing ? 'icon icon-pause icon-md' : 'icon icon-play icon-md';
-        }
-    }
-
-    function setVolume(value) {
-        audioState.volume = value / 100;
-        DOM.mainAudio.volume = audioState.volume;
-    }
-
-    function seekAudio(event) {
-        const rect = DOM.progressBar.getBoundingClientRect();
-        const percent = (event.clientX - rect.left) / rect.width;
-        DOM.mainAudio.currentTime = percent * DOM.mainAudio.duration;
-    }
-
-    function updateAudioProgress() {
-        if (DOM.mainAudio.duration) {
-            const percent = (DOM.mainAudio.currentTime / DOM.mainAudio.duration) * 100;
-            DOM.progressFill.style.width = percent + '%';
-        }
-    }
-
-    // =========================================================================
-    // HANDLERS WEBSOCKET
+    // ROOM HANDLERS
     // =========================================================================
     function onRoomUpdate(data) {
-        if (data.status) {
-            roomStatus = data.status;
-        }
-        if (data.is_ready !== undefined) {
-            updateStartButton();
-        }
+        debugLog('info', 'Room update', data);
+        if (data.status) roomStatus = data.status;
+        updateStartButton();
     }
 
     function onPlayerReady(data) {
-        const playerItem = document.querySelector(`[data-user-id="${data.user_id}"]`);
-        if (playerItem) {
-            const statusEl = playerItem.querySelector('.player-status span');
-            const readyIcon = playerItem.querySelector('.player-ready-icon');
-            
+        debugLog('info', 'Player ready', data);
+        const el = document.querySelector(`[data-user-id="${data.user_id}"]`);
+        if (el) {
+            const status = el.querySelector('.player-status span');
+            const icon = el.querySelector('.player-ready-icon');
             if (data.ready) {
-                if (statusEl) {
-                    statusEl.className = 'text-success';
-                    statusEl.textContent = 'Prêt';
-                }
-                if (readyIcon) {
-                    readyIcon.className = 'player-ready-icon ready';
-                    readyIcon.innerHTML = '<span class="icon icon-check icon-sm"></span>';
-                }
+                status.className = 'text-success'; status.textContent = 'Prêt';
+                icon.className = 'player-ready-icon ready';
+                icon.innerHTML = '<span class="icon icon-check icon-sm"></span>';
             } else {
-                if (statusEl) {
-                    statusEl.className = 'text-muted';
-                    statusEl.textContent = 'En attente';
-                }
-                if (readyIcon) {
-                    readyIcon.className = 'player-ready-icon not-ready';
-                    readyIcon.innerHTML = '<span class="icon icon-timer icon-sm"></span>';
-                }
+                status.className = 'text-muted'; status.textContent = 'En attente';
+                icon.className = 'player-ready-icon not-ready';
+                icon.innerHTML = '<span class="icon icon-timer icon-sm"></span>';
             }
         }
         updateStartButton();
     }
 
     function onPlayerJoined(data) {
-        showToast(`${data.pseudo} a rejoint la salle`, 'info');
+        showToast(`${data.pseudo} a rejoint`, 'info');
         addPlayerToUI(data);
     }
 
     function onPlayerLeft(data) {
-        showToast(`${data.pseudo} a quitté la salle`, 'warning');
+        showToast(`${data.pseudo} a quitté`, 'warning');
         removePlayerFromUI(data.user_id);
     }
 
+    // =========================================================================
+    // GAME HANDLERS
+    // =========================================================================
     function onGameStart(data) {
-        console.log('[Game] 🎮 Partie démarrée:', data);
+        debugLog('info', '🎮 GAME START', data);
         showToast('La partie commence !', 'success');
         roomStatus = 'playing';
         
-        DOM.waitingState.classList.add('hidden');
-        DOM.playingState.classList.remove('hidden');
-        DOM.scoreboard.classList.remove('hidden');
+        document.getElementById('waiting-state').classList.add('hidden');
+        document.getElementById('playing-state').classList.remove('hidden');
+        document.getElementById('scoreboard').classList.remove('hidden');
         
         gameState.totalRounds = data.rounds || 10;
         gameState.currentRound = 0;
@@ -1135,22 +418,17 @@
     }
 
     async function onPreload(data) {
-        console.log('[Game] 🔄 Préchargement manche', data.round);
-        showLoading(true, `Préparation manche ${data.round}...`, 20);
-        
-        const success = await preloadAudio(data.preview_url);
-        
-        showLoading(true, `Préparation manche ${data.round}...`, success ? 100 : 50);
-        
-        // Le round va arriver juste après
+        debugLog('info', '🔄 Preload', data);
+        showLoading(true, `Préparation manche ${data.round}...`, 30);
+        await preloadAudio(data.preview_url);
+        showLoading(true, `Prêt !`, 100);
     }
 
-    async function onNewRound(data) {
-        console.log('[Game] 🎵 Nouvelle manche:', data);
+    function onNewRound(data) {
+        debugLog('info', '🎵 NEW ROUND', data);
         
-        // Éviter les doubles exécutions
         if (gameState.isRoundActive && gameState.currentRound === data.round) {
-            console.warn('[Game] ⚠️ Round déjà actif');
+            debugLog('error', 'Round déjà actif');
             return;
         }
         
@@ -1159,377 +437,288 @@
         gameState.hasAnsweredCorrectly = false;
         gameState.isRevealed = false;
         
-        // Mise à jour UI
-        DOM.roundNumber.textContent = `Manche ${data.round}/${data.total}`;
-        DOM.timer.textContent = data.duration + 's';
-        DOM.timer.className = '';
+        document.getElementById('round-number').textContent = `Manche ${data.round}/${data.total}`;
+        document.getElementById('timer').textContent = data.duration + 's';
+        document.getElementById('timer').className = '';
         
-        // Réinitialiser le formulaire
-        DOM.answerForm.classList.remove('disabled');
-        DOM.answerInput.disabled = false;
-        DOM.answerInput.value = '';
-        DOM.submitAnswer.disabled = false;
+        const form = document.getElementById('answer-form');
+        const input = document.getElementById('answer-input');
+        const btn = document.getElementById('submit-answer');
+        form.classList.remove('disabled');
+        input.disabled = false;
+        input.value = '';
+        btn.disabled = false;
         
-        // Cacher les sections de feedback
-        DOM.answerFeedback.classList.add('hidden');
-        DOM.playerFoundAlerts.innerHTML = '';
-        DOM.revealSection.classList.add('hidden');
+        document.getElementById('answer-feedback').classList.add('hidden');
+        document.getElementById('player-found-alerts').innerHTML = '';
+        document.getElementById('reveal-section').classList.add('hidden');
         
-        // Image floue
-        DOM.trackImage.classList.add('blur');
-        DOM.trackImage.classList.remove('revealed');
-        DOM.trackImage.src = '/static/img/album-placeholder.png';
+        const img = document.getElementById('track-image');
+        img.classList.add('blur');
+        img.classList.remove('revealed');
+        img.src = '/static/img/album-placeholder.png';
         
-        // Cacher le loading
         showLoading(false);
-        
-        // Jouer l'audio
-        await playAudio(data.preview_url);
-        
-        // Reset préchargement
-        audioState.isPreloaded = false;
-        audioState.preloadedUrl = null;
-        
-        // Focus sur le champ de réponse
-        DOM.answerInput.focus();
+        playAudio(data.preview_url);
+        input.focus();
     }
 
     function onTimeUpdate(data) {
-        DOM.timer.textContent = data.time_left + 's';
-        
-        if (data.time_left <= 5) {
-            DOM.timer.className = 'danger';
-        } else if (data.time_left <= 10) {
-            DOM.timer.className = 'warning';
-        } else {
-            DOM.timer.className = '';
-        }
+        const timer = document.getElementById('timer');
+        timer.textContent = data.time_left + 's';
+        timer.className = data.time_left <= 5 ? 'danger' : data.time_left <= 10 ? 'warning' : '';
     }
 
     function onAnswerResult(data) {
-        DOM.answerFeedback.classList.remove('hidden');
+        debugLog('info', 'Answer result', data);
+        const feedback = document.getElementById('answer-feedback');
+        feedback.classList.remove('hidden');
         
         if (data.already_answered) {
-            DOM.answerFeedback.className = 'answer-feedback wrong';
-            DOM.answerFeedback.textContent = 'Vous avez déjà trouvé !';
+            feedback.className = 'answer-feedback wrong';
+            feedback.textContent = 'Vous avez déjà trouvé !';
         } else if (data.is_correct) {
-            DOM.answerFeedback.className = 'answer-feedback correct';
-            DOM.answerFeedback.textContent = `✓ Bonne réponse ! +${data.points} points`;
+            feedback.className = 'answer-feedback correct';
+            feedback.textContent = `✓ Bonne réponse ! +${data.points} points`;
             gameState.hasAnsweredCorrectly = true;
-            
-            // Désactiver le formulaire
-            DOM.answerForm.classList.add('disabled');
-            DOM.answerInput.disabled = true;
-            DOM.submitAnswer.disabled = true;
+            document.getElementById('answer-form').classList.add('disabled');
+            document.getElementById('answer-input').disabled = true;
         } else {
-            DOM.answerFeedback.className = 'answer-feedback wrong';
-            DOM.answerFeedback.textContent = '✕ Mauvaise réponse, réessayez !';
-            
-            // Permettre de réessayer
-            DOM.answerInput.value = '';
-            DOM.answerInput.focus();
+            feedback.className = 'answer-feedback wrong';
+            feedback.textContent = '✕ Mauvaise réponse, réessayez !';
+            document.getElementById('answer-input').value = '';
+            document.getElementById('answer-input').focus();
         }
     }
 
     function onPlayerFound(data) {
+        debugLog('info', 'Player found', data);
+        const alerts = document.getElementById('player-found-alerts');
         const alert = document.createElement('div');
         alert.className = 'player-found-alert';
         alert.innerHTML = `🎉 <strong>${data.pseudo}</strong> a trouvé ! (+${data.points} pts)`;
-        DOM.playerFoundAlerts.appendChild(alert);
-        
-        // Supprimer après 3 secondes
-        setTimeout(() => {
-            alert.style.opacity = '0';
-            alert.style.transform = 'translateY(-10px)';
-            setTimeout(() => alert.remove(), 300);
-        }, 3000);
+        alerts.appendChild(alert);
+        setTimeout(() => alert.remove(), 3000);
     }
 
     function onReveal(data) {
-        console.log('[Game] 🔓 Révélation:', data);
-        
+        debugLog('info', '🔓 REVEAL', data);
         gameState.isRoundActive = false;
         gameState.isRevealed = true;
-        
-        // Arrêter l'audio
         stopAudio();
         
-        // Afficher la réponse
-        DOM.revealSection.innerHTML = `
-            <div class="reveal-card">
-                <img src="${data.image_url || '/static/img/album-placeholder.png'}" alt="Album">
-                <h3>${data.track_name}</h3>
-                <p>${data.artist_name}</p>
-                <p class="text-muted">${data.album_name}</p>
-            </div>
-        `;
-        DOM.revealSection.classList.remove('hidden');
+        const section = document.getElementById('reveal-section');
+        section.innerHTML = `<div class="reveal-card"><img src="${data.image_url || '/static/img/album-placeholder.png'}" alt="Album"><h3>${data.track_name}</h3><p>${data.artist_name}</p><p class="text-muted">${data.album_name}</p></div>`;
+        section.classList.remove('hidden');
         
-        // Révéler l'image
-        if (data.image_url) {
-            DOM.trackImage.src = data.image_url;
-        }
-        DOM.trackImage.classList.remove('blur');
-        DOM.trackImage.classList.add('revealed');
+        const img = document.getElementById('track-image');
+        if (data.image_url) img.src = data.image_url;
+        img.classList.remove('blur');
+        img.classList.add('revealed');
         
-        // Désactiver le formulaire
-        DOM.answerForm.classList.add('disabled');
-        DOM.answerInput.disabled = true;
-        DOM.submitAnswer.disabled = true;
+        document.getElementById('answer-form').classList.add('disabled');
     }
 
     function onScoresUpdate(scores) {
-        DOM.scoreboardList.innerHTML = '';
-        
-        if (!Array.isArray(scores)) {
-            scores = Object.values(scores);
-        }
-        
-        scores.forEach((score, index) => {
-            const row = document.createElement('div');
-            row.className = 'score-row';
-            row.innerHTML = `
-                <span class="score-rank">${index + 1}.</span>
-                <span class="score-player">${score.pseudo}</span>
-                <span class="score-value">${score.score} pts</span>
-            `;
-            DOM.scoreboardList.appendChild(row);
+        debugLog('info', 'Scores update', scores);
+        const list = document.getElementById('scoreboard-list');
+        list.innerHTML = '';
+        (Array.isArray(scores) ? scores : Object.values(scores)).forEach((s, i) => {
+            list.innerHTML += `<div class="score-row"><span class="score-rank">${i+1}.</span><span class="score-player">${s.pseudo}</span><span class="score-value">${s.score} pts</span></div>`;
         });
     }
 
     function onGameEnd(data) {
-        console.log('[Game] 🏁 Fin de partie:', data);
+        debugLog('info', '🏁 GAME END', data);
         roomStatus = 'finished';
         gameState.isRoundActive = false;
-        
         stopAudio();
         
-        DOM.playingState.classList.add('hidden');
-        DOM.finishedState.classList.remove('hidden');
+        document.getElementById('playing-state').classList.add('hidden');
+        document.getElementById('finished-state').classList.remove('hidden');
         
-        // Afficher le gagnant
-        DOM.winnerName.textContent = data.winner || 'Personne';
-        
+        document.getElementById('winner-name').textContent = data.winner || 'Personne';
         if (data.scores && data.scores.length > 0) {
-            DOM.winnerScore.textContent = `${data.scores[0].score} points`;
-            
-            // Classement final
-            DOM.finalScores.innerHTML = '';
-            data.scores.forEach((score, index) => {
-                const row = document.createElement('div');
-                row.className = 'score-row';
-                row.innerHTML = `
-                    <span class="score-rank">${index + 1}.</span>
-                    <span class="score-player">${score.pseudo}</span>
-                    <span class="score-value">${score.score} pts</span>
-                `;
-                DOM.finalScores.appendChild(row);
+            document.getElementById('winner-score').textContent = data.scores[0].score + ' points';
+            const final = document.getElementById('final-scores');
+            final.innerHTML = '';
+            data.scores.forEach((s, i) => {
+                final.innerHTML += `<div class="score-row"><span class="score-rank">${i+1}.</span><span class="score-player">${s.pseudo}</span><span class="score-value">${s.score} pts</span></div>`;
             });
         }
-        
-        showToast('Partie terminée !', 'success', 5000);
+        showToast('Partie terminée !', 'success');
     }
 
     // =========================================================================
-    // ACTIONS UTILISATEUR
+    // AUDIO
+    // =========================================================================
+    function preloadAudio(url) {
+        return new Promise((resolve) => {
+            const audio = document.getElementById('preload-audio');
+            const timeout = setTimeout(() => { resolve(false); }, CONFIG.AUDIO_PRELOAD_TIMEOUT);
+            audio.oncanplaythrough = () => { clearTimeout(timeout); audioState.isPreloaded = true; audioState.preloadedUrl = url; resolve(true); };
+            audio.onerror = () => { clearTimeout(timeout); resolve(false); };
+            audio.src = url;
+            audio.load();
+        });
+    }
+
+    function playAudio(url) {
+        const audio = document.getElementById('main-audio');
+        audio.src = url;
+        audio.volume = audioState.volume;
+        audio.play().then(() => {
+            audioState.isPlaying = true;
+            updatePlayButton(true);
+        }).catch(e => {
+            debugLog('error', 'Autoplay blocked', e);
+            showToast('Cliquez ▶️ pour écouter', 'info');
+        });
+    }
+
+    function stopAudio() {
+        const audio = document.getElementById('main-audio');
+        audio.pause();
+        audio.currentTime = 0;
+        audioState.isPlaying = false;
+        updatePlayButton(false);
+    }
+
+    function togglePlay() {
+        const audio = document.getElementById('main-audio');
+        if (audioState.isPlaying) {
+            audio.pause();
+            audioState.isPlaying = false;
+        } else {
+            audio.play();
+            audioState.isPlaying = true;
+        }
+        updatePlayButton(audioState.isPlaying);
+    }
+
+    function updatePlayButton(playing) {
+        document.getElementById('play-icon').className = playing ? 'icon icon-pause icon-md' : 'icon icon-play icon-md';
+    }
+
+    function setVolume(v) {
+        audioState.volume = v / 100;
+        document.getElementById('main-audio').volume = audioState.volume;
+    }
+
+    function seekAudio(e) {
+        const bar = document.getElementById('progress-bar');
+        const audio = document.getElementById('main-audio');
+        const pct = (e.clientX - bar.getBoundingClientRect().left) / bar.offsetWidth;
+        audio.currentTime = pct * audio.duration;
+    }
+
+    // =========================================================================
+    // USER ACTIONS
     // =========================================================================
     function copyRoomCode(code) {
-        navigator.clipboard.writeText(code).then(() => {
-            showToast('Code copié !', 'success');
-        }).catch(() => {
-            showToast('Erreur lors de la copie', 'error');
-        });
+        navigator.clipboard.writeText(code).then(() => showToast('Code copié !', 'success'));
     }
 
     function toggleReady() {
         isReady = !isReady;
         sendWS('player_ready', { ready: isReady });
-        
-        if (DOM.readyBtn) {
-            if (isReady) {
-                DOM.readyBtn.classList.remove('btn-primary');
-                DOM.readyBtn.classList.add('btn-warning');
-                DOM.readyText.textContent = 'Annuler';
-            } else {
-                DOM.readyBtn.classList.remove('btn-warning');
-                DOM.readyBtn.classList.add('btn-primary');
-                DOM.readyText.textContent = 'Je suis prêt !';
-            }
+        const btn = document.getElementById('ready-btn');
+        const txt = document.getElementById('ready-text');
+        if (btn) {
+            btn.className = isReady ? 'btn btn-warning btn-lg' : 'btn btn-primary btn-lg';
+            txt.textContent = isReady ? 'Annuler' : 'Je suis prêt !';
         }
     }
 
     function startGame() {
-        if (!isHost) {
-            showToast('Seul l\'hôte peut lancer la partie', 'warning');
-            return;
-        }
+        if (!isHost) { showToast('Seul l\'hôte peut lancer', 'warning'); return; }
+        debugLog('out', 'Sending start_game');
         sendWS('start_game', {});
     }
 
     function submitAnswer() {
-        if (gameState.hasAnsweredCorrectly) {
-            showToast('Vous avez déjà trouvé !', 'info');
-            return;
-        }
-        
-        const answer = DOM.answerInput.value.trim();
-        
-        if (!answer) {
-            showToast('Entrez une réponse', 'warning');
-            return;
-        }
-
+        if (gameState.hasAnsweredCorrectly) { showToast('Déjà trouvé !', 'info'); return; }
+        const answer = document.getElementById('answer-input').value.trim();
+        if (!answer) { showToast('Entrez une réponse', 'warning'); return; }
         sendWS('bt_answer', { answer });
     }
 
     function leaveRoom() {
-        if (confirm('Voulez-vous vraiment quitter la salle ?')) {
+        if (confirm('Quitter la salle ?')) {
             sendWS('leave_room', {});
             window.location.href = '/rooms';
         }
     }
 
     function restartGame() {
-        fetch(`/api/rooms/${roomCode}/restart`, {
-            method: 'POST',
-            credentials: 'same-origin'
-        })
-        .then(response => response.json())
-        .then(data => {
-            if (data.success) {
-                showToast('Partie relancée !', 'success');
-                setTimeout(() => window.location.reload(), 1000);
-            } else {
-                showToast(data.message || 'Erreur', 'error');
-            }
-        })
-        .catch(() => {
-            showToast('Erreur de connexion', 'error');
-        });
+        fetch(`/api/rooms/${roomCode}/restart`, { method: 'POST', credentials: 'same-origin' })
+            .then(r => r.json())
+            .then(d => { if (d.success) location.reload(); else showToast(d.message || 'Erreur', 'error'); });
     }
 
     function updateStartButton() {
-        if (!DOM.startBtn) return;
-
-        const playerItems = document.querySelectorAll('.player-item');
-        const playerCount = playerItems.length;
-        let nonHostNotReady = 0;
-
-        playerItems.forEach(item => {
-            if (!item.classList.contains('is-host')) {
-                const readyIcon = item.querySelector('.player-ready-icon');
-                if (readyIcon && readyIcon.classList.contains('not-ready')) {
-                    nonHostNotReady++;
-                }
-            }
-        });
-
-        // Permettre le mode solo OU tous prêts
-        const canStart = (playerCount === 1) || (nonHostNotReady === 0);
-        
-        DOM.startBtn.disabled = !canStart;
-        
-        if (DOM.startHint) {
-            if (playerCount === 1) {
-                DOM.startHint.textContent = 'Mode solo disponible - Lancez quand vous voulez !';
-            } else if (canStart) {
-                DOM.startHint.textContent = 'Tous les joueurs sont prêts !';
-            } else {
-                DOM.startHint.textContent = `En attente de ${nonHostNotReady} joueur(s)...`;
-            }
-        }
+        const btn = document.getElementById('start-btn');
+        if (!btn) return;
+        const players = document.querySelectorAll('.player-item');
+        let notReady = 0;
+        players.forEach(p => { if (!p.classList.contains('is-host') && p.querySelector('.not-ready')) notReady++; });
+        const canStart = players.length === 1 || notReady === 0;
+        btn.disabled = !canStart;
+        const hint = document.getElementById('start-hint');
+        if (hint) hint.textContent = players.length === 1 ? 'Mode solo' : canStart ? 'Tous prêts !' : `Attente de ${notReady} joueur(s)`;
     }
 
-    function addPlayerToUI(player) {
-        if (!DOM.playersList) return;
-        
-        if (document.querySelector(`[data-user-id="${player.user_id}"]`)) return;
-        
+    function addPlayerToUI(p) {
+        const list = document.getElementById('players-list');
+        if (document.querySelector(`[data-user-id="${p.user_id}"]`)) return;
         const div = document.createElement('div');
         div.className = 'player-item';
-        div.dataset.userId = player.user_id;
-        div.innerHTML = `
-            <div class="player-avatar">${player.pseudo.charAt(0)}</div>
-            <div class="player-info">
-                <div class="player-name">${player.pseudo}</div>
-                <div class="player-status"><span class="text-muted">En attente</span></div>
-            </div>
-            <div class="player-ready-icon not-ready">
-                <span class="icon icon-timer icon-sm"></span>
-            </div>
-        `;
-        DOM.playersList.appendChild(div);
-        
-        DOM.playerCount.textContent = DOM.playersList.children.length;
+        div.dataset.userId = p.user_id;
+        div.innerHTML = `<div class="player-avatar">${p.pseudo[0]}</div><div class="player-info"><div class="player-name">${p.pseudo}</div><div class="player-status"><span class="text-muted">En attente</span></div></div><div class="player-ready-icon not-ready"><span class="icon icon-timer icon-sm"></span></div>`;
+        list.appendChild(div);
+        document.getElementById('player-count').textContent = list.children.length;
         updateStartButton();
     }
 
-    function removePlayerFromUI(userId) {
-        const el = document.querySelector(`[data-user-id="${userId}"]`);
+    function removePlayerFromUI(id) {
+        const el = document.querySelector(`[data-user-id="${id}"]`);
         if (el) el.remove();
-        
-        DOM.playerCount.textContent = DOM.playersList.children.length;
+        document.getElementById('player-count').textContent = document.getElementById('players-list').children.length;
         updateStartButton();
     }
 
     // =========================================================================
-    // INITIALISATION
+    // INIT
     // =========================================================================
     document.addEventListener('DOMContentLoaded', () => {
-        console.log('[Init] 🎮 Démarrage - Salle:', roomCode, 'Status:', roomStatus);
+        debugLog('info', `Init: room=${roomCode}, status=${roomStatus}, isHost=${isHost}`);
         
-        // Initialiser le cache DOM
-        initDOM();
-        
-        // Configurer l'audio
-        DOM.mainAudio.addEventListener('timeupdate', updateAudioProgress);
-        DOM.mainAudio.addEventListener('ended', () => {
-            audioState.isPlaying = false;
-            updatePlayButton(false);
+        const audio = document.getElementById('main-audio');
+        audio.addEventListener('timeupdate', () => {
+            if (audio.duration) document.getElementById('progress-fill').style.width = (audio.currentTime / audio.duration * 100) + '%';
         });
-        DOM.mainAudio.volume = audioState.volume;
-        DOM.volumeSlider.value = audioState.volume * 100;
+        audio.addEventListener('ended', () => { audioState.isPlaying = false; updatePlayButton(false); });
+        audio.volume = audioState.volume;
+        document.getElementById('volume-slider').value = audioState.volume * 100;
         
-        // Afficher le bon état initial
         if (roomStatus === 'playing') {
-            DOM.waitingState.classList.add('hidden');
-            DOM.playingState.classList.remove('hidden');
-            DOM.scoreboard.classList.remove('hidden');
+            document.getElementById('waiting-state').classList.add('hidden');
+            document.getElementById('playing-state').classList.remove('hidden');
+            document.getElementById('scoreboard').classList.remove('hidden');
         } else if (roomStatus === 'finished') {
-            DOM.waitingState.classList.add('hidden');
-            DOM.finishedState.classList.remove('hidden');
+            document.getElementById('waiting-state').classList.add('hidden');
+            document.getElementById('finished-state').classList.remove('hidden');
         }
         
-        // Connexion WebSocket
         connectWebSocket();
-        
-        // Mettre à jour le bouton start
         updateStartButton();
         
-        // Gestionnaire touche Entrée
-        if (DOM.answerInput) {
-            DOM.answerInput.addEventListener('keypress', (e) => {
-                if (e.key === 'Enter') {
-                    e.preventDefault();
-                    submitAnswer();
-                }
-            });
-        }
+        document.getElementById('answer-input')?.addEventListener('keypress', (e) => { if (e.key === 'Enter') { e.preventDefault(); submitAnswer(); } });
         
-        // Ping périodique pour maintenir la connexion
-        setInterval(() => {
-            if (wsConnected) {
-                sendWS('ping', {});
-            }
-        }, 30000);
+        setInterval(() => { if (wsConnected) sendWS('ping', {}); }, 30000);
     });
 
-    // Gérer la fermeture de page
-    window.addEventListener('beforeunload', () => {
-        if (ws) {
-            ws.close(1000, 'Page fermée');
-        }
-    });
+    window.addEventListener('beforeunload', () => { if (ws) ws.close(1000, 'Page closed'); });
     </script>
 </body>
 </html>

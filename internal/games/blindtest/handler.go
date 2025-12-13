@@ -18,7 +18,7 @@ type Handler struct {
 	roomManager *rooms.Manager
 	hub         *websocket.Hub
 	stopTimers  map[string]chan bool
-	roundLocks  map[string]*sync.Mutex // Empêche les doubles exécutions
+	roundLocks  map[string]*sync.Mutex
 	mutex       sync.Mutex
 }
 
@@ -43,11 +43,13 @@ func GetHandler() *Handler {
 
 // HandleMessage traite les messages WebSocket du Blind Test
 func (h *Handler) HandleMessage(client *websocket.Client, msg *models.WSMessage) {
+	log.Printf("[BlindTest] 📨 Message reçu: type=%s, user=%d", msg.Type, client.UserID)
+
 	switch msg.Type {
 	case models.WSTypeBTAnswer:
 		h.handleAnswer(client, msg)
 	default:
-		log.Printf("[BlindTest] Message non géré: %s", msg.Type)
+		log.Printf("[BlindTest] ⚠️ Message non géré: %s", msg.Type)
 	}
 }
 
@@ -61,7 +63,6 @@ func (h *Handler) StartGame(roomCode string, genre string, rounds int) error {
 		}
 	}
 
-	// Démarrer la partie
 	_, err = h.gameManager.StartGame(room.ID, genre, rounds)
 	if err != nil {
 		return err
@@ -69,13 +70,11 @@ func (h *Handler) StartGame(roomCode string, genre string, rounds int) error {
 
 	log.Printf("[BlindTest] ✅ Partie démarrée dans la salle %s (genre: %s, manches: %d)", roomCode, genre, rounds)
 
-	// Créer le canal pour stopper le timer et le lock pour les rounds
 	h.mutex.Lock()
 	h.stopTimers[room.ID] = make(chan bool, 1)
 	h.roundLocks[room.ID] = &sync.Mutex{}
 	h.mutex.Unlock()
 
-	// Lancer la première manche après un court délai
 	go func() {
 		time.Sleep(2 * time.Second)
 		h.startNextRound(room.ID, roomCode)
@@ -86,16 +85,15 @@ func (h *Handler) StartGame(roomCode string, genre string, rounds int) error {
 
 // startNextRound démarre la prochaine manche
 func (h *Handler) startNextRound(roomID, roomCode string) {
-	// Acquérir le lock pour éviter les doubles exécutions
 	h.mutex.Lock()
 	roundLock, exists := h.roundLocks[roomID]
 	h.mutex.Unlock()
-	
+
 	if !exists {
 		log.Printf("[BlindTest] ❌ Round lock non trouvé pour %s", roomID)
 		return
 	}
-	
+
 	roundLock.Lock()
 	defer roundLock.Unlock()
 
@@ -109,7 +107,6 @@ func (h *Handler) startNextRound(roomID, roomCode string) {
 		return
 	}
 
-	// Jeu terminé ?
 	if roundInfo == nil {
 		log.Printf("[BlindTest] 🏁 Jeu terminé pour salle %s", roomCode)
 		h.endGame(roomID, roomCode)
@@ -118,9 +115,9 @@ func (h *Handler) startNextRound(roomID, roomCode string) {
 
 	log.Printf("[BlindTest] 🎵 Manche %d/%d - Preview: %s", roundInfo.Round, roundInfo.Total, roundInfo.PreviewURL)
 
-	// D'abord envoyer un message de préchargement
+	// Préchargement - utilise WSTypeBTPreload
 	h.hub.Broadcast(roomCode, &models.WSMessage{
-		Type: "bt_preload",
+		Type: models.WSTypeBTPreload,
 		Payload: map[string]interface{}{
 			"preview_url": roundInfo.PreviewURL,
 			"round":       roundInfo.Round,
@@ -128,29 +125,24 @@ func (h *Handler) startNextRound(roomID, roomCode string) {
 		},
 	})
 
-	// Attendre que les clients préchargent (1.5 secondes)
 	time.Sleep(1500 * time.Millisecond)
 
-	// Recréer le canal stop pour cette manche
 	h.mutex.Lock()
-	// Fermer l'ancien canal s'il existe
 	if oldChan, exists := h.stopTimers[roomID]; exists {
 		select {
 		case <-oldChan:
-			// Canal déjà drainé
 		default:
 		}
 	}
 	h.stopTimers[roomID] = make(chan bool, 1)
 	h.mutex.Unlock()
 
-	// Envoyer les infos de la manche à tous les joueurs (le jeu commence!)
+	// Nouvelle manche - utilise WSTypeBTNewRound
 	h.hub.Broadcast(roomCode, &models.WSMessage{
 		Type:    models.WSTypeBTNewRound,
 		Payload: roundInfo,
 	})
 
-	// Démarrer le timer
 	go h.runRoundTimer(roomID, roomCode, roundInfo.Duration)
 }
 
@@ -179,7 +171,6 @@ func (h *Handler) runRoundTimer(roomID, roomCode string, duration int) {
 	timeLeft := duration
 
 	for timeLeft >= 0 {
-		// Vérifier si on doit arrêter
 		select {
 		case <-stopChan:
 			log.Printf("[BlindTest] ⏹️ Timer interrompu")
@@ -191,15 +182,14 @@ func (h *Handler) runRoundTimer(roomID, roomCode string, duration int) {
 		state.TimeLeft = timeLeft
 		state.Mutex.Unlock()
 
-		// Envoyer le temps restant
+		// Mise à jour du temps - utilise WSTypeTimeUpdate
 		h.hub.Broadcast(roomCode, &models.WSMessage{
-			Type: "time_update",
+			Type: models.WSTypeTimeUpdate,
 			Payload: map[string]int{
 				"time_left": timeLeft,
 			},
 		})
 
-		// Vérifier si le jeu existe toujours
 		if h.gameManager.GetGameState(roomID) == nil {
 			log.Printf("[BlindTest] Jeu terminé pendant le timer")
 			return
@@ -209,7 +199,6 @@ func (h *Handler) runRoundTimer(roomID, roomCode string, duration int) {
 			break
 		}
 
-		// Attendre 1 seconde
 		select {
 		case <-stopChan:
 			log.Printf("[BlindTest] ⏹️ Timer interrompu pendant l'attente")
@@ -219,7 +208,6 @@ func (h *Handler) runRoundTimer(roomID, roomCode string, duration int) {
 		}
 	}
 
-	// Temps écoulé - vérifier qu'on n'a pas été interrompu
 	select {
 	case <-stopChan:
 		log.Printf("[BlindTest] ⏹️ Timer déjà interrompu, on ne révèle pas")
@@ -264,7 +252,7 @@ func (h *Handler) handleAnswer(client *websocket.Client, msg *models.WSMessage) 
 		return
 	}
 
-	// Envoyer le résultat au joueur
+	// Résultat - utilise WSTypeBTResult
 	client.Send(&models.WSMessage{
 		Type:    models.WSTypeBTResult,
 		Payload: result,
@@ -272,9 +260,10 @@ func (h *Handler) handleAnswer(client *websocket.Client, msg *models.WSMessage) 
 
 	if result.IsCorrect && !result.AlreadyAnswered {
 		log.Printf("[BlindTest] ✅ Bonne réponse de %s ! +%d points", client.Pseudo, result.Points)
-		
+
+		// Joueur a trouvé - utilise WSTypePlayerFound
 		h.hub.Broadcast(client.RoomCode, &models.WSMessage{
-			Type: "player_found",
+			Type: models.WSTypePlayerFound,
 			Payload: map[string]interface{}{
 				"user_id": client.UserID,
 				"pseudo":  client.Pseudo,
@@ -284,10 +273,9 @@ func (h *Handler) handleAnswer(client *websocket.Client, msg *models.WSMessage) 
 
 		h.broadcastScores(room.ID, client.RoomCode)
 
-		// Vérifier si tous les joueurs ont trouvé
 		if h.allPlayersAnsweredCorrectly(room.ID) {
 			log.Printf("[BlindTest] 🎉 Tous les joueurs ont trouvé !")
-			
+
 			h.mutex.Lock()
 			if stopChan, exists := h.stopTimers[room.ID]; exists {
 				select {
@@ -326,7 +314,6 @@ func (h *Handler) allPlayersAnsweredCorrectly(roomID string) bool {
 	state.Mutex.RLock()
 	correctCount := 0
 	for userID := range state.HasAnswered {
-		// Vérifier si la réponse était correcte
 		answer := state.Answers[userID]
 		if checkAnswer(answer, state.CurrentTrack.Name, state.CurrentTrack.Artist) {
 			correctCount++
@@ -340,6 +327,7 @@ func (h *Handler) allPlayersAnsweredCorrectly(roomID string) bool {
 // broadcastScores envoie les scores à tous les joueurs
 func (h *Handler) broadcastScores(roomID, roomCode string) {
 	scores := h.gameManager.GetScores(roomID)
+	// Scores - utilise WSTypeBTScores
 	h.hub.Broadcast(roomCode, &models.WSMessage{
 		Type:    models.WSTypeBTScores,
 		Payload: scores,
@@ -348,14 +336,12 @@ func (h *Handler) broadcastScores(roomID, roomCode string) {
 
 // revealAndContinue révèle la réponse et passe à la manche suivante
 func (h *Handler) revealAndContinue(roomID, roomCode string) {
-	// Vérifier que le jeu existe toujours
 	state := h.gameManager.GetGameState(roomID)
 	if state == nil {
 		log.Printf("[BlindTest] ⚠️ État du jeu non trouvé pour révélation")
 		return
 	}
 
-	// Vérifier si déjà révélé (éviter double révélation)
 	state.Mutex.Lock()
 	if state.IsRevealed {
 		state.Mutex.Unlock()
@@ -367,15 +353,15 @@ func (h *Handler) revealAndContinue(roomID, roomCode string) {
 	revealInfo := h.gameManager.RevealAnswer(roomID)
 	if revealInfo != nil {
 		log.Printf("[BlindTest] 🔓 Révélation: %s - %s", revealInfo.TrackName, revealInfo.ArtistName)
+		// Révélation - utilise WSTypeBTReveal
 		h.hub.Broadcast(roomCode, &models.WSMessage{
-			Type:    "bt_reveal",
+			Type:    models.WSTypeBTReveal,
 			Payload: revealInfo,
 		})
 	}
 
 	h.broadcastScores(roomID, roomCode)
 
-	// Attendre avant la prochaine manche
 	time.Sleep(4 * time.Second)
 
 	if h.gameManager.IsGameOver(roomID) {
@@ -406,6 +392,7 @@ func (h *Handler) endGame(roomID, roomCode string) {
 		return
 	}
 
+	// Fin de partie - utilise WSTypeBTGameEnd
 	h.hub.Broadcast(roomCode, &models.WSMessage{
 		Type:    models.WSTypeBTGameEnd,
 		Payload: result,

@@ -37,7 +37,7 @@ type PetitBacStarter interface {
 type Handler struct {
 	hub         *Hub
 	roomManager *rooms.Manager
-	
+
 	blindTestHandler BlindTestStarter
 	petitBacHandler  PetitBacStarter
 }
@@ -53,19 +53,20 @@ func NewHandler() *Handler {
 // SetBlindTestHandler définit le handler Blind Test
 func (h *Handler) SetBlindTestHandler(handler BlindTestStarter) {
 	h.blindTestHandler = handler
-	log.Println("[WebSocket] Handler Blind Test configuré")
+	log.Println("[WebSocket] ✅ Handler Blind Test configuré")
 }
 
 // SetPetitBacHandler définit le handler Petit Bac
 func (h *Handler) SetPetitBacHandler(handler PetitBacStarter) {
 	h.petitBacHandler = handler
-	log.Println("[WebSocket] Handler Petit Bac configuré")
+	log.Println("[WebSocket] ✅ Handler Petit Bac configuré")
 }
 
 // HandleWebSocket gère les nouvelles connexions WebSocket
 func (h *Handler) HandleWebSocket(w http.ResponseWriter, r *http.Request) {
 	user := auth.GetUserFromContext(r.Context())
 	if user == nil {
+		log.Println("[WebSocket] ❌ Utilisateur non authentifié")
 		http.Error(w, "Non authentifié", http.StatusUnauthorized)
 		return
 	}
@@ -75,8 +76,9 @@ func (h *Handler) HandleWebSocket(w http.ResponseWriter, r *http.Request) {
 		path := strings.TrimPrefix(r.URL.Path, "/ws/room/")
 		roomCode = strings.TrimSuffix(path, "/")
 	}
-	
+
 	if roomCode == "" {
+		log.Println("[WebSocket] ❌ Code de salle manquant")
 		http.Error(w, "Code de salle manquant", http.StatusBadRequest)
 		return
 	}
@@ -85,6 +87,7 @@ func (h *Handler) HandleWebSocket(w http.ResponseWriter, r *http.Request) {
 	if err != nil {
 		room, err = h.roomManager.GetRoom(roomCode)
 		if err != nil {
+			log.Printf("[WebSocket] ❌ Salle non trouvée: %s", roomCode)
 			http.Error(w, "Salle non trouvée", http.StatusNotFound)
 			return
 		}
@@ -95,6 +98,7 @@ func (h *Handler) HandleWebSocket(w http.ResponseWriter, r *http.Request) {
 	room.Mutex.RUnlock()
 
 	if !isInRoom {
+		log.Printf("[WebSocket] ❌ User %d pas dans la salle %s", user.ID, roomCode)
 		http.Error(w, "Vous n'êtes pas dans cette salle", http.StatusForbidden)
 		return
 	}
@@ -115,6 +119,9 @@ func (h *Handler) HandleWebSocket(w http.ResponseWriter, r *http.Request) {
 	}
 	room.Mutex.Unlock()
 
+	log.Printf("[WebSocket] ✅ Client connecté: User %d (%s) dans salle %s", user.ID, user.Pseudo, room.Code)
+
+	// Notifier les autres joueurs - utilise WSTypePlayerJoined
 	h.hub.BroadcastExcept(room.Code, &models.WSMessage{
 		Type: models.WSTypePlayerJoined,
 		Payload: map[string]interface{}{
@@ -130,6 +137,9 @@ func (h *Handler) HandleWebSocket(w http.ResponseWriter, r *http.Request) {
 
 // handleMessage traite les messages reçus des clients
 func (h *Handler) handleMessage(client *Client, msg *models.WSMessage) {
+	log.Printf("[WebSocket] 📨 Message: type=%s, user=%d (%s), room=%s",
+		msg.Type, client.UserID, client.Pseudo, client.RoomCode)
+
 	room, err := h.roomManager.GetRoomByCode(client.RoomCode)
 	if err != nil {
 		room, err = h.roomManager.GetRoom(client.RoomCode)
@@ -140,32 +150,36 @@ func (h *Handler) handleMessage(client *Client, msg *models.WSMessage) {
 	}
 
 	switch msg.Type {
-	// Messages de salle
+	// === Messages de salle ===
 	case models.WSTypePlayerReady:
 		h.handlePlayerReady(client, room, msg)
+
 	case models.WSTypeLeaveRoom:
 		h.handleLeaveRoom(client, room)
+
 	case models.WSTypeStartGame:
 		h.handleStartGame(client, room, msg)
 
-	// Messages Blind Test
+	// === Messages Blind Test ===
 	case models.WSTypeBTAnswer:
 		if h.blindTestHandler != nil {
 			h.blindTestHandler.HandleMessage(client, msg)
 		} else {
+			log.Println("[WebSocket] ⚠️ Handler Blind Test non configuré")
 			client.SendError("Handler Blind Test non configuré")
 		}
 
-	// Messages Petit Bac
-	case "submit_answers", "stop_round", "submit_votes":
+	// === Messages Petit Bac ===
+	case models.WSTypePBSubmitAnswers, models.WSTypePBStopRound, models.WSTypePBSubmitVotes:
 		if h.petitBacHandler != nil {
 			h.petitBacHandler.HandleMessage(client, msg)
 		} else {
+			log.Println("[WebSocket] ⚠️ Handler Petit Bac non configuré")
 			client.SendError("Handler Petit Bac non configuré")
 		}
 
 	default:
-		log.Printf("[WebSocket] Message non géré: %s", msg.Type)
+		log.Printf("[WebSocket] ⚠️ Message non géré: %s", msg.Type)
 	}
 }
 
@@ -185,6 +199,9 @@ func (h *Handler) handlePlayerReady(client *Client, room *models.Room, msg *mode
 		return
 	}
 
+	log.Printf("[WebSocket] 👤 Player %d (%s) ready=%v", client.UserID, client.Pseudo, ready)
+
+	// Notifier tous les joueurs - utilise WSTypePlayerReady
 	h.hub.Broadcast(room.Code, &models.WSMessage{
 		Type: models.WSTypePlayerReady,
 		Payload: map[string]interface{}{
@@ -195,6 +212,7 @@ func (h *Handler) handlePlayerReady(client *Client, room *models.Room, msg *mode
 	})
 
 	if models.IsRoomReady(room) {
+		// Salle prête - utilise WSTypeRoomUpdate
 		h.hub.Broadcast(room.Code, &models.WSMessage{
 			Type: models.WSTypeRoomUpdate,
 			Payload: map[string]interface{}{
@@ -212,6 +230,9 @@ func (h *Handler) handleLeaveRoom(client *Client, room *models.Room) {
 		return
 	}
 
+	log.Printf("[WebSocket] 👋 Player %d (%s) quitte la salle %s", client.UserID, client.Pseudo, room.Code)
+
+	// Notifier les autres - utilise WSTypePlayerLeft
 	h.hub.BroadcastExcept(room.Code, &models.WSMessage{
 		Type: models.WSTypePlayerLeft,
 		Payload: map[string]interface{}{
@@ -225,6 +246,8 @@ func (h *Handler) handleLeaveRoom(client *Client, room *models.Room) {
 
 // handleStartGame gère le démarrage d'une partie
 func (h *Handler) handleStartGame(client *Client, room *models.Room, msg *models.WSMessage) {
+	log.Printf("[WebSocket] 🎮 Demande start_game de %d (%s) pour salle %s", client.UserID, client.Pseudo, room.Code)
+
 	if room.HostID != client.UserID {
 		client.SendError("Seul l'hôte peut démarrer la partie")
 		return
@@ -253,14 +276,28 @@ func (h *Handler) handleStartGame(client *Client, room *models.Room, msg *models
 		}
 		rounds := 10
 
+		// Extraire les paramètres du payload si présents
+		if payload, ok := msg.Payload.(map[string]interface{}); ok {
+			if g, ok := payload["genre"].(string); ok && g != "" {
+				genre = g
+			}
+			if r, ok := payload["rounds"].(float64); ok && r > 0 {
+				rounds = int(r)
+			}
+		}
+
 		err := h.blindTestHandler.StartGame(room.Code, genre, rounds)
 		if err != nil {
+			log.Printf("[WebSocket] ❌ Erreur démarrage BlindTest: %v", err)
 			client.SendError("Impossible de démarrer: " + err.Error())
 			return
 		}
 
 		h.roomManager.StartGame(room.ID)
 
+		log.Printf("[WebSocket] ✅ BlindTest démarré: genre=%s, rounds=%d", genre, rounds)
+
+		// Notifier tous les joueurs - utilise WSTypeStartGame
 		h.hub.Broadcast(room.Code, &models.WSMessage{
 			Type: models.WSTypeStartGame,
 			Payload: map[string]interface{}{
@@ -287,14 +324,17 @@ func (h *Handler) handleStartGame(client *Client, room *models.Room, msg *models
 
 		err := h.petitBacHandler.StartGame(room.Code, categories, rounds)
 		if err != nil {
+			log.Printf("[WebSocket] ❌ Erreur démarrage PetitBac: %v", err)
 			client.SendError("Impossible de démarrer: " + err.Error())
 			return
 		}
 
 		h.roomManager.StartGame(room.ID)
 
+		log.Printf("[WebSocket] ✅ PetitBac démarré: categories=%v, rounds=%d", categories, rounds)
+
 	default:
-		client.SendError("Type de jeu inconnu")
+		client.SendError("Type de jeu inconnu: " + string(room.GameType))
 	}
 }
 
@@ -315,6 +355,7 @@ func (h *Handler) sendRoomState(client *Client, room *models.Room) {
 		})
 	}
 
+	// Envoyer l'état - utilise WSTypeRoomUpdate
 	client.Send(&models.WSMessage{
 		Type: models.WSTypeRoomUpdate,
 		Payload: map[string]interface{}{
