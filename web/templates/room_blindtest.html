@@ -139,6 +139,12 @@
             padding: 1rem;
             margin: 1rem 0;
             text-align: center;
+            animation: slideIn 0.3s ease-out;
+        }
+        
+        @keyframes slideIn {
+            from { transform: translateY(-20px); opacity: 0; }
+            to { transform: translateY(0); opacity: 1; }
         }
         
         .score-row {
@@ -196,19 +202,27 @@
             margin-top: 0.5rem;
         }
         
-        /* Loading indicator */
+        /* Loading indicator amélioré */
         .loading-overlay {
             position: fixed;
             top: 0;
             left: 0;
             right: 0;
             bottom: 0;
-            background: rgba(0, 0, 0, 0.7);
+            background: rgba(0, 0, 0, 0.8);
             display: flex;
             flex-direction: column;
             align-items: center;
             justify-content: center;
             z-index: 1000;
+            opacity: 0;
+            visibility: hidden;
+            transition: opacity 0.2s, visibility 0.2s;
+        }
+        
+        .loading-overlay.visible {
+            opacity: 1;
+            visibility: visible;
         }
         
         .loading-spinner {
@@ -217,7 +231,7 @@
             border: 4px solid rgba(255, 255, 255, 0.1);
             border-top-color: var(--neon-cyan);
             border-radius: 50%;
-            animation: spin 1s linear infinite;
+            animation: spin 0.8s linear infinite;
         }
         
         .loading-text {
@@ -226,12 +240,150 @@
             font-size: 1.2rem;
         }
         
+        .loading-progress {
+            width: 200px;
+            height: 4px;
+            background: rgba(255, 255, 255, 0.1);
+            border-radius: 2px;
+            margin-top: 1rem;
+            overflow: hidden;
+        }
+        
+        .loading-progress-bar {
+            height: 100%;
+            background: var(--neon-cyan);
+            width: 0%;
+            transition: width 0.3s;
+        }
+        
         @keyframes spin {
             to { transform: rotate(360deg); }
         }
         
         .hidden {
             display: none !important;
+        }
+        
+        /* Audio controls custom */
+        .audio-controls {
+            display: flex;
+            align-items: center;
+            gap: 1rem;
+            background: rgba(255, 255, 255, 0.05);
+            padding: 1rem 2rem;
+            border-radius: var(--radius-lg);
+            margin-top: 1rem;
+        }
+        
+        .play-btn {
+            width: 60px;
+            height: 60px;
+            border-radius: 50%;
+            background: var(--neon-cyan);
+            border: none;
+            cursor: pointer;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            transition: transform 0.2s, background 0.2s;
+        }
+        
+        .play-btn:hover {
+            transform: scale(1.1);
+            background: var(--neon-green);
+        }
+        
+        .play-btn:disabled {
+            opacity: 0.5;
+            cursor: not-allowed;
+            transform: none;
+        }
+        
+        .progress-bar {
+            flex: 1;
+            height: 8px;
+            background: rgba(255, 255, 255, 0.1);
+            border-radius: 4px;
+            overflow: hidden;
+            cursor: pointer;
+        }
+        
+        .progress-fill {
+            height: 100%;
+            background: linear-gradient(90deg, var(--neon-cyan), var(--neon-green));
+            width: 0%;
+            transition: width 0.1s linear;
+        }
+        
+        .volume-control {
+            display: flex;
+            align-items: center;
+            gap: 0.5rem;
+        }
+        
+        .volume-slider {
+            width: 80px;
+            background: rgba(255, 255, 255, 0.1);
+            height: 4px;
+            border-radius: 2px;
+            outline: none;
+        }
+        
+        .volume-slider::-webkit-slider-thumb {
+            -webkit-appearance: none;
+            width: 14px;
+            height: 14px;
+            background: var(--neon-cyan);
+            border-radius: 50%;
+            cursor: pointer;
+        }
+        
+        /* Indicateur de connexion */
+        .connection-status {
+            position: fixed;
+            top: 80px;
+            right: 20px;
+            padding: 0.5rem 1rem;
+            border-radius: var(--radius-md);
+            font-size: 0.875rem;
+            z-index: 100;
+            display: flex;
+            align-items: center;
+            gap: 0.5rem;
+        }
+        
+        .connection-status.connected {
+            background: rgba(0, 255, 136, 0.1);
+            border: 1px solid var(--neon-green);
+            color: var(--neon-green);
+        }
+        
+        .connection-status.disconnected {
+            background: rgba(255, 107, 107, 0.1);
+            border: 1px solid var(--neon-pink);
+            color: var(--neon-pink);
+        }
+        
+        .connection-status.connecting {
+            background: rgba(255, 165, 0, 0.1);
+            border: 1px solid var(--neon-orange);
+            color: var(--neon-orange);
+        }
+        
+        .status-dot {
+            width: 8px;
+            height: 8px;
+            border-radius: 50%;
+            background: currentColor;
+        }
+        
+        .status-dot.pulsing {
+            animation: statusPulse 1s ease-in-out infinite;
+        }
+        
+        @keyframes statusPulse {
+            0%, 100% { opacity: 1; }
+            50% { opacity: 0.3; }
         }
     </style>
 </head>
@@ -257,10 +409,19 @@
         </div>
     </nav>
 
-    <!-- Loading overlay pour le chargement audio -->
-    <div id="loading-overlay" class="loading-overlay hidden">
+    <!-- Indicateur de connexion -->
+    <div id="connection-status" class="connection-status connecting">
+        <span class="status-dot pulsing"></span>
+        <span id="connection-text">Connexion...</span>
+    </div>
+
+    <!-- Loading overlay amélioré -->
+    <div id="loading-overlay" class="loading-overlay">
         <div class="loading-spinner"></div>
-        <div class="loading-text">Chargement de la musique...</div>
+        <div class="loading-text" id="loading-text">Chargement...</div>
+        <div class="loading-progress">
+            <div class="loading-progress-bar" id="loading-progress"></div>
+        </div>
     </div>
 
     <!-- Page de salle -->
@@ -320,7 +481,7 @@
                 </div>
 
                 <!-- État: Partie en cours -->
-                <div id="playing-state" style="display: none;">
+                <div id="playing-state" class="hidden">
                     <div id="round-info">
                         <span id="round-number">Manche 1/10</span>
                         <span id="timer">30s</span>
@@ -328,11 +489,24 @@
 
                     <div id="audio-player">
                         <img src="/static/img/album-placeholder.png" alt="Album" class="track-image blur" id="track-image">
-                        <audio id="preview-audio" controls style="width: 100%; max-width: 400px; margin-top: 1rem;">
-                            Votre navigateur ne supporte pas l'audio.
-                        </audio>
-                        <!-- Audio préchargé (caché) -->
-                        <audio id="preload-audio" preload="auto" style="display: none;"></audio>
+                        
+                        <!-- Contrôles audio custom -->
+                        <div class="audio-controls">
+                            <button class="play-btn" id="play-btn" onclick="togglePlay()">
+                                <span class="icon icon-play icon-md" id="play-icon"></span>
+                            </button>
+                            <div class="progress-bar" id="progress-bar" onclick="seekAudio(event)">
+                                <div class="progress-fill" id="progress-fill"></div>
+                            </div>
+                            <div class="volume-control">
+                                <span class="icon icon-volume icon-sm"></span>
+                                <input type="range" class="volume-slider" id="volume-slider" min="0" max="100" value="80" onchange="setVolume(this.value)">
+                            </div>
+                        </div>
+                        
+                        <!-- Audio caché -->
+                        <audio id="main-audio" preload="auto" crossorigin="anonymous"></audio>
+                        <audio id="preload-audio" preload="auto" crossorigin="anonymous" style="display: none;"></audio>
                     </div>
 
                     <div id="answer-form">
@@ -349,13 +523,13 @@
                         </button>
                     </div>
 
-                    <div id="answer-feedback" style="display: none;"></div>
+                    <div id="answer-feedback" class="hidden"></div>
                     <div id="player-found-alerts"></div>
-                    <div id="reveal-section" style="display: none;"></div>
+                    <div id="reveal-section" class="hidden"></div>
                 </div>
 
                 <!-- État: Partie terminée -->
-                <div id="finished-state" class="game-end" style="display: none;">
+                <div id="finished-state" class="game-end hidden">
                     <h1>🎉 Partie Terminée !</h1>
                     
                     <div class="winner-card" id="winner-card">
@@ -425,7 +599,7 @@
             </div>
 
             <!-- Scoreboard -->
-            <div class="scoreboard" id="scoreboard" style="display: none;">
+            <div class="scoreboard hidden" id="scoreboard">
                 <h3>
                     <span class="icon icon-trophy icon-sm"></span>
                     Scores
@@ -448,223 +622,470 @@
 
     <script>
     // =========================================================================
-    // TOAST NOTIFICATIONS
+    // CONFIGURATION ET CONSTANTES
     // =========================================================================
-    function showToast(message, type, duration) {
-        type = type || 'info';
-        duration = duration || 3000;
-        
-        var container = document.querySelector('.toast-container');
-        if (!container) {
-            container = document.createElement('div');
-            container.className = 'toast-container';
-            document.body.appendChild(container);
-        }
-
-        var toast = document.createElement('div');
-        toast.className = 'toast toast-' + type;
-        
-        var icons = { success: '✓', error: '✕', warning: '⚠', info: 'ℹ' };
-        toast.innerHTML = '<span class="toast-icon">' + (icons[type] || icons.info) + '</span>' +
-                          '<span class="toast-message">' + message + '</span>';
-
-        container.appendChild(toast);
-
-        setTimeout(function() {
-            toast.classList.add('toast-exit');
-            setTimeout(function() { toast.remove(); }, 300);
-        }, duration);
-    }
+    const CONFIG = {
+        WS_RECONNECT_DELAY: 1000,
+        WS_MAX_RECONNECT_ATTEMPTS: 10,
+        AUDIO_PRELOAD_TIMEOUT: 8000,
+        AUDIO_PLAY_RETRY_DELAY: 100,
+        AUDIO_PLAY_MAX_RETRIES: 30,
+        TOAST_DURATION: 3000
+    };
 
     // =========================================================================
     // VARIABLES GLOBALES
     // =========================================================================
-    var ws = null;
-    var wsConnected = false;
-    var wsReconnectAttempts = 0;
-    var wsMaxReconnectAttempts = 5;
+    let ws = null;
+    let wsConnected = false;
+    let wsReconnectAttempts = 0;
+    let wsReconnectTimer = null;
 
-    var roomCode = '{{.Room.Code}}';
-    var roomId = '{{.Room.ID}}';
-    var currentUserId = '{{.User.ID}}';
-    var roomStatus = '{{.Room.Status}}';
-    var isHost = '{{.Player.IsHost}}' === 'true';
-    var isReady = '{{.Player.IsReady}}' === 'true';
-    var hasAnsweredCorrectly = false;
-    var currentRound = 0;
-    var totalRounds = 10;
-    var isRoundActive = false;
-    var preloadedAudioUrl = null;
-    var audioPreloaded = false;
+    const roomCode = '{{.Room.Code}}';
+    const roomId = '{{.Room.ID}}';
+    const currentUserId = '{{.User.ID}}';
+    let roomStatus = '{{.Room.Status}}';
+    const isHost = '{{.Player.IsHost}}' === 'true';
+    let isReady = '{{.Player.IsReady}}' === 'true';
+
+    // État du jeu
+    let gameState = {
+        hasAnsweredCorrectly: false,
+        currentRound: 0,
+        totalRounds: 10,
+        isRoundActive: false,
+        isRevealed: false
+    };
+
+    // État audio
+    let audioState = {
+        isPlaying: false,
+        isPreloaded: false,
+        preloadedUrl: null,
+        currentUrl: null,
+        volume: 0.8
+    };
+
+    // Éléments DOM mis en cache
+    let DOM = {};
 
     // =========================================================================
-    // PRÉCHARGEMENT AUDIO
+    // INITIALISATION DOM
     // =========================================================================
-    function preloadAudio(url) {
-        return new Promise(function(resolve, reject) {
-            var preloadAudio = document.getElementById('preload-audio');
-            preloadAudio.src = url;
+    function initDOM() {
+        DOM = {
+            // Loading
+            loadingOverlay: document.getElementById('loading-overlay'),
+            loadingText: document.getElementById('loading-text'),
+            loadingProgress: document.getElementById('loading-progress'),
             
-            var loadTimeout = setTimeout(function() {
-                console.log('⚠️ Timeout préchargement audio, on continue');
-                resolve();
-            }, 5000); // 5 secondes max
+            // Connection
+            connectionStatus: document.getElementById('connection-status'),
+            connectionText: document.getElementById('connection-text'),
             
-            preloadAudio.oncanplaythrough = function() {
-                clearTimeout(loadTimeout);
-                console.log('✅ Audio préchargé');
-                audioPreloaded = true;
-                preloadedAudioUrl = url;
-                resolve();
-            };
+            // States
+            waitingState: document.getElementById('waiting-state'),
+            playingState: document.getElementById('playing-state'),
+            finishedState: document.getElementById('finished-state'),
             
-            preloadAudio.onerror = function(e) {
-                clearTimeout(loadTimeout);
-                console.error('❌ Erreur préchargement audio:', e);
-                resolve(); // On continue quand même
-            };
+            // Game UI
+            roundNumber: document.getElementById('round-number'),
+            timer: document.getElementById('timer'),
+            trackImage: document.getElementById('track-image'),
+            answerForm: document.getElementById('answer-form'),
+            answerInput: document.getElementById('answer-input'),
+            submitAnswer: document.getElementById('submit-answer'),
+            answerFeedback: document.getElementById('answer-feedback'),
+            playerFoundAlerts: document.getElementById('player-found-alerts'),
+            revealSection: document.getElementById('reveal-section'),
             
-            preloadAudio.load();
-        });
+            // Audio
+            mainAudio: document.getElementById('main-audio'),
+            preloadAudio: document.getElementById('preload-audio'),
+            playBtn: document.getElementById('play-btn'),
+            playIcon: document.getElementById('play-icon'),
+            progressBar: document.getElementById('progress-bar'),
+            progressFill: document.getElementById('progress-fill'),
+            volumeSlider: document.getElementById('volume-slider'),
+            
+            // Scoreboard
+            scoreboard: document.getElementById('scoreboard'),
+            scoreboardList: document.getElementById('scoreboard-list'),
+            
+            // Players
+            playersList: document.getElementById('players-list'),
+            playerCount: document.getElementById('player-count'),
+            
+            // Buttons
+            startBtn: document.getElementById('start-btn'),
+            startHint: document.getElementById('start-hint'),
+            readyBtn: document.getElementById('ready-btn'),
+            readyText: document.getElementById('ready-text'),
+            
+            // End game
+            winnerName: document.getElementById('winner-name'),
+            winnerScore: document.getElementById('winner-score'),
+            finalScores: document.getElementById('final-scores')
+        };
     }
 
-    function showLoading(show) {
-        var overlay = document.getElementById('loading-overlay');
+    // =========================================================================
+    // UTILITAIRES
+    // =========================================================================
+    function showToast(message, type = 'info', duration = CONFIG.TOAST_DURATION) {
+        const container = document.getElementById('toastContainer') || createToastContainer();
+        
+        const toast = document.createElement('div');
+        toast.className = `toast toast-${type}`;
+        
+        const icons = { success: '✓', error: '✕', warning: '⚠', info: 'ℹ' };
+        toast.innerHTML = `
+            <span class="toast-icon">${icons[type] || icons.info}</span>
+            <span class="toast-message">${message}</span>
+        `;
+        
+        container.appendChild(toast);
+        
+        setTimeout(() => {
+            toast.classList.add('toast-exit');
+            setTimeout(() => toast.remove(), 300);
+        }, duration);
+    }
+
+    function createToastContainer() {
+        const container = document.createElement('div');
+        container.className = 'toast-container';
+        container.id = 'toastContainer';
+        document.body.appendChild(container);
+        return container;
+    }
+
+    function showLoading(show, text = 'Chargement...', progress = 0) {
         if (show) {
-            overlay.classList.remove('hidden');
+            DOM.loadingText.textContent = text;
+            DOM.loadingProgress.style.width = progress + '%';
+            DOM.loadingOverlay.classList.add('visible');
         } else {
-            overlay.classList.add('hidden');
+            DOM.loadingOverlay.classList.remove('visible');
+        }
+    }
+
+    function updateConnectionStatus(status) {
+        DOM.connectionStatus.className = `connection-status ${status}`;
+        const statusDot = DOM.connectionStatus.querySelector('.status-dot');
+        
+        switch(status) {
+            case 'connected':
+                DOM.connectionText.textContent = 'Connecté';
+                statusDot.classList.remove('pulsing');
+                break;
+            case 'disconnected':
+                DOM.connectionText.textContent = 'Déconnecté';
+                statusDot.classList.add('pulsing');
+                break;
+            case 'connecting':
+                DOM.connectionText.textContent = 'Connexion...';
+                statusDot.classList.add('pulsing');
+                break;
         }
     }
 
     // =========================================================================
     // WEBSOCKET
     // =========================================================================
-    function connectWebSocket(roomCode) {
-        var protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
-        var wsUrl = protocol + '//' + window.location.host + '/ws/room/' + roomCode;
+    function connectWebSocket() {
+        if (ws && ws.readyState === WebSocket.OPEN) {
+            console.log('[WS] Déjà connecté');
+            return;
+        }
+
+        updateConnectionStatus('connecting');
         
-        console.log('🔌 Connexion WebSocket:', wsUrl);
+        const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
+        const wsUrl = `${protocol}//${window.location.host}/ws/room/${roomCode}`;
+        
+        console.log('[WS] Connexion à:', wsUrl);
         
         try {
             ws = new WebSocket(wsUrl);
             
-            ws.onopen = function() {
-                console.log('✅ WebSocket connecté');
+            ws.onopen = () => {
+                console.log('[WS] ✅ Connecté');
                 wsConnected = true;
                 wsReconnectAttempts = 0;
+                updateConnectionStatus('connected');
                 showToast('Connecté à la salle', 'success');
             };
             
-            ws.onclose = function(event) {
-                console.log('🔌 WebSocket fermé:', event.code);
+            ws.onclose = (event) => {
+                console.log('[WS] Fermé:', event.code, event.reason);
                 wsConnected = false;
+                updateConnectionStatus('disconnected');
                 
-                if (!event.wasClean && wsReconnectAttempts < wsMaxReconnectAttempts) {
-                    wsReconnectAttempts++;
-                    var delay = 1000 * wsReconnectAttempts;
-                    console.log('🔄 Reconnexion dans ' + delay + 'ms...');
-                    setTimeout(function() { connectWebSocket(roomCode); }, delay);
+                if (!event.wasClean && wsReconnectAttempts < CONFIG.WS_MAX_RECONNECT_ATTEMPTS) {
+                    scheduleReconnect();
                 }
             };
             
-            ws.onerror = function(error) {
-                console.error('❌ Erreur WebSocket:', error);
+            ws.onerror = (error) => {
+                console.error('[WS] ❌ Erreur:', error);
+                updateConnectionStatus('disconnected');
             };
             
-            ws.onmessage = function(event) {
+            ws.onmessage = (event) => {
                 try {
-                    var message = JSON.parse(event.data);
+                    const message = JSON.parse(event.data);
                     handleWSMessage(message);
                 } catch (e) {
-                    console.error('Erreur parsing:', e);
+                    console.error('[WS] Erreur parsing:', e);
                 }
             };
         } catch (error) {
-            console.error('❌ Erreur création WebSocket:', error);
+            console.error('[WS] Erreur création:', error);
+            scheduleReconnect();
         }
     }
 
-    function sendWS(type, payload) {
-        if (!wsConnected || !ws) {
-            console.warn('WebSocket non connecté');
+    function scheduleReconnect() {
+        if (wsReconnectTimer) clearTimeout(wsReconnectTimer);
+        
+        wsReconnectAttempts++;
+        const delay = Math.min(CONFIG.WS_RECONNECT_DELAY * wsReconnectAttempts, 10000);
+        
+        console.log(`[WS] Reconnexion dans ${delay}ms (tentative ${wsReconnectAttempts})`);
+        updateConnectionStatus('connecting');
+        
+        wsReconnectTimer = setTimeout(connectWebSocket, delay);
+    }
+
+    function sendWS(type, payload = {}) {
+        if (!wsConnected || !ws || ws.readyState !== WebSocket.OPEN) {
+            console.warn('[WS] Non connecté, impossible d\'envoyer:', type);
             return false;
         }
-        var message = { type: type, payload: payload || {} };
+        
+        const message = { type, payload };
         ws.send(JSON.stringify(message));
-        console.log('📤 Envoyé:', type);
+        console.log('[WS] 📤 Envoyé:', type);
         return true;
     }
 
     function handleWSMessage(message) {
-        console.log('📨 Reçu:', message.type, message);
+        console.log('[WS] 📨 Reçu:', message.type, message);
         
-        switch(message.type) {
-            // Messages de salle
-            case 'player_ready':
-                onPlayerReady(message.payload);
-                break;
-            case 'player_joined':
-                showToast(message.payload.pseudo + ' a rejoint la salle', 'info');
-                addPlayerToUI(message.payload);
-                break;
-            case 'player_left':
-                showToast(message.payload.pseudo + ' a quitté la salle', 'warning');
-                removePlayerFromUI(message.payload.user_id);
-                break;
-            case 'room_update':
-                onRoomUpdate(message.payload);
-                break;
-            case 'start_game':
-                onGameStart(message.payload);
-                break;
+        const handlers = {
+            // Salle
+            'player_ready': onPlayerReady,
+            'player_joined': onPlayerJoined,
+            'player_left': onPlayerLeft,
+            'room_update': onRoomUpdate,
+            'start_game': onGameStart,
             
-            // Messages Blind Test
-            case 'bt_preload':
-                onPreload(message.payload);
-                break;
-            case 'bt_new_round':
-                onNewRound(message.payload);
-                break;
-            case 'time_update':
-                onTimeUpdate(message.payload);
-                break;
-            case 'bt_result':
-                onAnswerResult(message.payload);
-                break;
-            case 'player_found':
-                onPlayerFound(message.payload);
-                break;
-            case 'bt_reveal':
-                onReveal(message.payload);
-                break;
-            case 'bt_scores':
-                onScoresUpdate(message.payload);
-                break;
-            case 'bt_game_end':
-                onGameEnd(message.payload);
-                break;
+            // Blind Test
+            'bt_preload': onPreload,
+            'bt_new_round': onNewRound,
+            'time_update': onTimeUpdate,
+            'bt_result': onAnswerResult,
+            'player_found': onPlayerFound,
+            'bt_reveal': onReveal,
+            'bt_scores': onScoresUpdate,
+            'bt_game_end': onGameEnd,
             
-            case 'error':
-                showToast(message.error || 'Erreur', 'error');
-                break;
+            // Erreurs
+            'error': (data) => showToast(data.error || message.error || 'Erreur', 'error'),
+            'pong': () => {} // Silencieux
+        };
+        
+        const handler = handlers[message.type];
+        if (handler) {
+            handler(message.payload || message);
+        } else {
+            console.log('[WS] Message non géré:', message.type);
         }
     }
 
     // =========================================================================
-    // GESTIONNAIRES D'ÉVÉNEMENTS SALLE
+    // GESTION AUDIO OPTIMISÉE
+    // =========================================================================
+    function preloadAudio(url) {
+        return new Promise((resolve, reject) => {
+            if (!url) {
+                reject(new Error('URL audio manquante'));
+                return;
+            }
+            
+            console.log('[Audio] 🔄 Préchargement:', url.substring(0, 50) + '...');
+            
+            const audio = DOM.preloadAudio;
+            let resolved = false;
+            
+            const cleanup = () => {
+                audio.oncanplaythrough = null;
+                audio.onerror = null;
+                audio.onloadeddata = null;
+            };
+            
+            const timeoutId = setTimeout(() => {
+                if (!resolved) {
+                    console.warn('[Audio] ⏱️ Timeout préchargement, on continue');
+                    cleanup();
+                    resolved = true;
+                    resolve(false);
+                }
+            }, CONFIG.AUDIO_PRELOAD_TIMEOUT);
+            
+            audio.oncanplaythrough = () => {
+                if (!resolved) {
+                    clearTimeout(timeoutId);
+                    cleanup();
+                    console.log('[Audio] ✅ Préchargé avec succès');
+                    audioState.isPreloaded = true;
+                    audioState.preloadedUrl = url;
+                    resolved = true;
+                    resolve(true);
+                }
+            };
+            
+            audio.onloadeddata = () => {
+                // Le fichier est chargé, on peut commencer à jouer même si pas entièrement buffered
+                if (!resolved && audio.readyState >= 2) {
+                    clearTimeout(timeoutId);
+                    cleanup();
+                    console.log('[Audio] ✅ Données chargées');
+                    audioState.isPreloaded = true;
+                    audioState.preloadedUrl = url;
+                    resolved = true;
+                    resolve(true);
+                }
+            };
+            
+            audio.onerror = (e) => {
+                if (!resolved) {
+                    clearTimeout(timeoutId);
+                    cleanup();
+                    console.error('[Audio] ❌ Erreur préchargement:', e);
+                    resolved = true;
+                    resolve(false);
+                }
+            };
+            
+            // Charger
+            audio.src = url;
+            audio.load();
+        });
+    }
+
+    async function playAudio(url) {
+        const audio = DOM.mainAudio;
+        
+        // Si c'est le même URL préchargé, copier depuis preload
+        if (audioState.preloadedUrl === url && audioState.isPreloaded) {
+            console.log('[Audio] 🎵 Utilisation audio préchargé');
+            audio.src = url;
+        } else {
+            console.log('[Audio] 🎵 Chargement direct');
+            audio.src = url;
+        }
+        
+        audioState.currentUrl = url;
+        audio.volume = audioState.volume;
+        
+        // Tenter de jouer avec retries
+        let retries = 0;
+        const tryPlay = async () => {
+            try {
+                await audio.play();
+                audioState.isPlaying = true;
+                updatePlayButton(true);
+                console.log('[Audio] ▶️ Lecture démarrée');
+                return true;
+            } catch (e) {
+                if (e.name === 'NotAllowedError') {
+                    console.log('[Audio] Autoplay bloqué, clic utilisateur requis');
+                    showToast('Cliquez sur ▶️ pour écouter', 'info');
+                    return false;
+                } else if (retries < CONFIG.AUDIO_PLAY_MAX_RETRIES) {
+                    retries++;
+                    await new Promise(r => setTimeout(r, CONFIG.AUDIO_PLAY_RETRY_DELAY));
+                    return tryPlay();
+                } else {
+                    console.error('[Audio] ❌ Impossible de jouer:', e);
+                    showToast('Erreur audio, cliquez sur ▶️', 'warning');
+                    return false;
+                }
+            }
+        };
+        
+        return tryPlay();
+    }
+
+    function stopAudio() {
+        const audio = DOM.mainAudio;
+        audio.pause();
+        audio.currentTime = 0;
+        audioState.isPlaying = false;
+        updatePlayButton(false);
+    }
+
+    function togglePlay() {
+        const audio = DOM.mainAudio;
+        
+        if (audioState.isPlaying) {
+            audio.pause();
+            audioState.isPlaying = false;
+            updatePlayButton(false);
+        } else {
+            audio.play().then(() => {
+                audioState.isPlaying = true;
+                updatePlayButton(true);
+            }).catch(e => {
+                console.error('[Audio] Erreur play:', e);
+                showToast('Impossible de lire l\'audio', 'error');
+            });
+        }
+    }
+
+    function updatePlayButton(playing) {
+        if (DOM.playIcon) {
+            DOM.playIcon.className = playing ? 'icon icon-pause icon-md' : 'icon icon-play icon-md';
+        }
+    }
+
+    function setVolume(value) {
+        audioState.volume = value / 100;
+        DOM.mainAudio.volume = audioState.volume;
+    }
+
+    function seekAudio(event) {
+        const rect = DOM.progressBar.getBoundingClientRect();
+        const percent = (event.clientX - rect.left) / rect.width;
+        DOM.mainAudio.currentTime = percent * DOM.mainAudio.duration;
+    }
+
+    function updateAudioProgress() {
+        if (DOM.mainAudio.duration) {
+            const percent = (DOM.mainAudio.currentTime / DOM.mainAudio.duration) * 100;
+            DOM.progressFill.style.width = percent + '%';
+        }
+    }
+
+    // =========================================================================
+    // HANDLERS WEBSOCKET
     // =========================================================================
     function onRoomUpdate(data) {
         if (data.status) {
             roomStatus = data.status;
         }
+        if (data.is_ready !== undefined) {
+            updateStartButton();
+        }
     }
 
     function onPlayerReady(data) {
-        var playerItem = document.querySelector('[data-user-id="' + data.user_id + '"]');
+        const playerItem = document.querySelector(`[data-user-id="${data.user_id}"]`);
         if (playerItem) {
-            var statusEl = playerItem.querySelector('.player-status span');
-            var readyIcon = playerItem.querySelector('.player-ready-icon');
+            const statusEl = playerItem.querySelector('.player-status span');
+            const readyIcon = playerItem.querySelector('.player-ready-icon');
             
             if (data.ready) {
                 if (statusEl) {
@@ -689,231 +1110,220 @@
         updateStartButton();
     }
 
-    // =========================================================================
-    // GESTIONNAIRES BLIND TEST
-    // =========================================================================
+    function onPlayerJoined(data) {
+        showToast(`${data.pseudo} a rejoint la salle`, 'info');
+        addPlayerToUI(data);
+    }
+
+    function onPlayerLeft(data) {
+        showToast(`${data.pseudo} a quitté la salle`, 'warning');
+        removePlayerFromUI(data.user_id);
+    }
+
     function onGameStart(data) {
+        console.log('[Game] 🎮 Partie démarrée:', data);
         showToast('La partie commence !', 'success');
         roomStatus = 'playing';
         
-        document.getElementById('waiting-state').style.display = 'none';
-        document.getElementById('playing-state').style.display = 'block';
-        document.getElementById('scoreboard').style.display = 'block';
+        DOM.waitingState.classList.add('hidden');
+        DOM.playingState.classList.remove('hidden');
+        DOM.scoreboard.classList.remove('hidden');
         
-        totalRounds = data.rounds || 10;
+        gameState.totalRounds = data.rounds || 10;
+        gameState.currentRound = 0;
+        gameState.hasAnsweredCorrectly = false;
     }
 
-    // Préchargement de l'audio avant le début du round
-    function onPreload(data) {
-        console.log('🔄 Préchargement audio pour manche', data.round);
-        showLoading(true);
+    async function onPreload(data) {
+        console.log('[Game] 🔄 Préchargement manche', data.round);
+        showLoading(true, `Préparation manche ${data.round}...`, 20);
         
-        preloadAudio(data.preview_url).then(function() {
-            console.log('✅ Audio prêt pour manche', data.round);
-            showLoading(false);
-        });
+        const success = await preloadAudio(data.preview_url);
+        
+        showLoading(true, `Préparation manche ${data.round}...`, success ? 100 : 50);
+        
+        // Le round va arriver juste après
     }
 
-    function onNewRound(data) {
-        console.log('🎵 Nouvelle manche:', data);
+    async function onNewRound(data) {
+        console.log('[Game] 🎵 Nouvelle manche:', data);
         
         // Éviter les doubles exécutions
-        if (isRoundActive && currentRound === data.round) {
-            console.log('⚠️ Round déjà actif, ignoré');
+        if (gameState.isRoundActive && gameState.currentRound === data.round) {
+            console.warn('[Game] ⚠️ Round déjà actif');
             return;
         }
         
-        isRoundActive = true;
-        currentRound = data.round;
-        hasAnsweredCorrectly = false;
+        gameState.isRoundActive = true;
+        gameState.currentRound = data.round;
+        gameState.hasAnsweredCorrectly = false;
+        gameState.isRevealed = false;
         
         // Mise à jour UI
-        document.getElementById('round-number').textContent = 'Manche ' + data.round + '/' + data.total;
-        document.getElementById('timer').textContent = data.duration + 's';
-        document.getElementById('timer').className = '';
+        DOM.roundNumber.textContent = `Manche ${data.round}/${data.total}`;
+        DOM.timer.textContent = data.duration + 's';
+        DOM.timer.className = '';
         
         // Réinitialiser le formulaire
-        var answerForm = document.getElementById('answer-form');
-        answerForm.classList.remove('disabled');
-        document.getElementById('answer-input').disabled = false;
-        document.getElementById('answer-input').value = '';
-        document.getElementById('submit-answer').disabled = false;
+        DOM.answerForm.classList.remove('disabled');
+        DOM.answerInput.disabled = false;
+        DOM.answerInput.value = '';
+        DOM.submitAnswer.disabled = false;
         
         // Cacher les sections de feedback
-        document.getElementById('answer-feedback').style.display = 'none';
-        document.getElementById('player-found-alerts').innerHTML = '';
-        document.getElementById('reveal-section').style.display = 'none';
+        DOM.answerFeedback.classList.add('hidden');
+        DOM.playerFoundAlerts.innerHTML = '';
+        DOM.revealSection.classList.add('hidden');
         
         // Image floue
-        var trackImage = document.getElementById('track-image');
-        trackImage.classList.add('blur');
-        trackImage.classList.remove('revealed');
-        trackImage.src = '/static/img/album-placeholder.png';
-        
-        // Charger et jouer l'audio
-        var audio = document.getElementById('preview-audio');
-        
-        // Utiliser l'audio préchargé si disponible
-        if (preloadedAudioUrl === data.preview_url && audioPreloaded) {
-            console.log('🎵 Utilisation de l\'audio préchargé');
-            audio.src = data.preview_url;
-            audio.load();
-        } else {
-            console.log('🎵 Chargement direct de l\'audio');
-            audio.src = data.preview_url;
-            audio.load();
-        }
-        
-        // Attendre un peu que l'audio soit prêt puis jouer
-        audio.oncanplay = function() {
-            audio.play().catch(function(e) {
-                console.log('Autoplay bloqué:', e);
-                showToast('Cliquez sur play pour écouter', 'info');
-            });
-        };
-        
-        // Reset des flags de préchargement
-        audioPreloaded = false;
-        preloadedAudioUrl = null;
+        DOM.trackImage.classList.add('blur');
+        DOM.trackImage.classList.remove('revealed');
+        DOM.trackImage.src = '/static/img/album-placeholder.png';
         
         // Cacher le loading
         showLoading(false);
         
+        // Jouer l'audio
+        await playAudio(data.preview_url);
+        
+        // Reset préchargement
+        audioState.isPreloaded = false;
+        audioState.preloadedUrl = null;
+        
         // Focus sur le champ de réponse
-        document.getElementById('answer-input').focus();
+        DOM.answerInput.focus();
     }
 
     function onTimeUpdate(data) {
-        var timerEl = document.getElementById('timer');
-        timerEl.textContent = data.time_left + 's';
+        DOM.timer.textContent = data.time_left + 's';
         
-        // Changer la couleur selon le temps
         if (data.time_left <= 5) {
-            timerEl.className = 'danger';
+            DOM.timer.className = 'danger';
         } else if (data.time_left <= 10) {
-            timerEl.className = 'warning';
+            DOM.timer.className = 'warning';
         } else {
-            timerEl.className = '';
+            DOM.timer.className = '';
         }
     }
 
     function onAnswerResult(data) {
-        var feedback = document.getElementById('answer-feedback');
+        DOM.answerFeedback.classList.remove('hidden');
         
         if (data.already_answered) {
-            feedback.className = 'answer-feedback wrong';
-            feedback.textContent = 'Vous avez déjà trouvé la bonne réponse !';
-            feedback.style.display = 'block';
+            DOM.answerFeedback.className = 'answer-feedback wrong';
+            DOM.answerFeedback.textContent = 'Vous avez déjà trouvé !';
         } else if (data.is_correct) {
-            feedback.className = 'answer-feedback correct';
-            feedback.textContent = '✓ Bonne réponse ! +' + data.points + ' points';
-            feedback.style.display = 'block';
-            hasAnsweredCorrectly = true;
+            DOM.answerFeedback.className = 'answer-feedback correct';
+            DOM.answerFeedback.textContent = `✓ Bonne réponse ! +${data.points} points`;
+            gameState.hasAnsweredCorrectly = true;
             
-            // Désactiver le formulaire après bonne réponse
-            document.getElementById('answer-form').classList.add('disabled');
-            document.getElementById('answer-input').disabled = true;
-            document.getElementById('submit-answer').disabled = true;
+            // Désactiver le formulaire
+            DOM.answerForm.classList.add('disabled');
+            DOM.answerInput.disabled = true;
+            DOM.submitAnswer.disabled = true;
         } else {
-            feedback.className = 'answer-feedback wrong';
-            feedback.textContent = '✕ Mauvaise réponse, réessayez !';
-            feedback.style.display = 'block';
+            DOM.answerFeedback.className = 'answer-feedback wrong';
+            DOM.answerFeedback.textContent = '✕ Mauvaise réponse, réessayez !';
             
             // Permettre de réessayer
-            document.getElementById('answer-input').value = '';
-            document.getElementById('answer-input').focus();
+            DOM.answerInput.value = '';
+            DOM.answerInput.focus();
         }
     }
 
     function onPlayerFound(data) {
-        var alertsContainer = document.getElementById('player-found-alerts');
-        var alert = document.createElement('div');
+        const alert = document.createElement('div');
         alert.className = 'player-found-alert';
-        alert.innerHTML = '🎉 <strong>' + data.pseudo + '</strong> a trouvé ! (+' + data.points + ' pts)';
-        alertsContainer.appendChild(alert);
+        alert.innerHTML = `🎉 <strong>${data.pseudo}</strong> a trouvé ! (+${data.points} pts)`;
+        DOM.playerFoundAlerts.appendChild(alert);
         
         // Supprimer après 3 secondes
-        setTimeout(function() {
+        setTimeout(() => {
             alert.style.opacity = '0';
-            setTimeout(function() { alert.remove(); }, 300);
+            alert.style.transform = 'translateY(-10px)';
+            setTimeout(() => alert.remove(), 300);
         }, 3000);
     }
 
     function onReveal(data) {
-        console.log('🔓 Révélation:', data);
+        console.log('[Game] 🔓 Révélation:', data);
         
-        isRoundActive = false;
+        gameState.isRoundActive = false;
+        gameState.isRevealed = true;
         
         // Arrêter l'audio
-        var audio = document.getElementById('preview-audio');
-        audio.pause();
+        stopAudio();
         
         // Afficher la réponse
-        var revealSection = document.getElementById('reveal-section');
-        revealSection.innerHTML = '<div class="reveal-card">' +
-            '<img src="' + (data.image_url || '/static/img/album-placeholder.png') + '" alt="Album">' +
-            '<h3>' + data.track_name + '</h3>' +
-            '<p>' + data.artist_name + '</p>' +
-            '<p class="text-muted">' + data.album_name + '</p>' +
-            '</div>';
-        revealSection.style.display = 'block';
+        DOM.revealSection.innerHTML = `
+            <div class="reveal-card">
+                <img src="${data.image_url || '/static/img/album-placeholder.png'}" alt="Album">
+                <h3>${data.track_name}</h3>
+                <p>${data.artist_name}</p>
+                <p class="text-muted">${data.album_name}</p>
+            </div>
+        `;
+        DOM.revealSection.classList.remove('hidden');
         
         // Révéler l'image
-        var trackImage = document.getElementById('track-image');
         if (data.image_url) {
-            trackImage.src = data.image_url;
+            DOM.trackImage.src = data.image_url;
         }
-        trackImage.classList.remove('blur');
-        trackImage.classList.add('revealed');
+        DOM.trackImage.classList.remove('blur');
+        DOM.trackImage.classList.add('revealed');
         
         // Désactiver le formulaire
-        document.getElementById('answer-form').classList.add('disabled');
-        document.getElementById('answer-input').disabled = true;
-        document.getElementById('submit-answer').disabled = true;
+        DOM.answerForm.classList.add('disabled');
+        DOM.answerInput.disabled = true;
+        DOM.submitAnswer.disabled = true;
     }
 
     function onScoresUpdate(scores) {
-        var list = document.getElementById('scoreboard-list');
-        list.innerHTML = '';
+        DOM.scoreboardList.innerHTML = '';
         
-        scores.forEach(function(score, index) {
-            var row = document.createElement('div');
+        if (!Array.isArray(scores)) {
+            scores = Object.values(scores);
+        }
+        
+        scores.forEach((score, index) => {
+            const row = document.createElement('div');
             row.className = 'score-row';
-            row.innerHTML = '<span class="score-rank">' + (index + 1) + '.</span>' +
-                '<span class="score-player">' + score.pseudo + '</span>' +
-                '<span class="score-value">' + score.score + ' pts</span>';
-            list.appendChild(row);
+            row.innerHTML = `
+                <span class="score-rank">${index + 1}.</span>
+                <span class="score-player">${score.pseudo}</span>
+                <span class="score-value">${score.score} pts</span>
+            `;
+            DOM.scoreboardList.appendChild(row);
         });
     }
 
     function onGameEnd(data) {
-        console.log('🏁 Fin de partie:', data);
+        console.log('[Game] 🏁 Fin de partie:', data);
         roomStatus = 'finished';
-        isRoundActive = false;
+        gameState.isRoundActive = false;
         
-        // Arrêter l'audio
-        var audio = document.getElementById('preview-audio');
-        audio.pause();
+        stopAudio();
         
-        document.getElementById('playing-state').style.display = 'none';
-        document.getElementById('finished-state').style.display = 'block';
+        DOM.playingState.classList.add('hidden');
+        DOM.finishedState.classList.remove('hidden');
         
         // Afficher le gagnant
-        document.getElementById('winner-name').textContent = data.winner || 'Personne';
+        DOM.winnerName.textContent = data.winner || 'Personne';
         
         if (data.scores && data.scores.length > 0) {
-            document.getElementById('winner-score').textContent = data.scores[0].score + ' points';
+            DOM.winnerScore.textContent = `${data.scores[0].score} points`;
             
-            // Afficher le classement final
-            var finalScores = document.getElementById('final-scores');
-            finalScores.innerHTML = '';
-            data.scores.forEach(function(score, index) {
-                var row = document.createElement('div');
+            // Classement final
+            DOM.finalScores.innerHTML = '';
+            data.scores.forEach((score, index) => {
+                const row = document.createElement('div');
                 row.className = 'score-row';
-                row.innerHTML = '<span class="score-rank">' + (index + 1) + '.</span>' +
-                    '<span class="score-player">' + score.pseudo + '</span>' +
-                    '<span class="score-value">' + score.score + ' pts</span>';
-                finalScores.appendChild(row);
+                row.innerHTML = `
+                    <span class="score-rank">${index + 1}.</span>
+                    <span class="score-player">${score.pseudo}</span>
+                    <span class="score-value">${score.score} pts</span>
+                `;
+                DOM.finalScores.appendChild(row);
             });
         }
         
@@ -924,9 +1334,9 @@
     // ACTIONS UTILISATEUR
     // =========================================================================
     function copyRoomCode(code) {
-        navigator.clipboard.writeText(code).then(function() {
+        navigator.clipboard.writeText(code).then(() => {
             showToast('Code copié !', 'success');
-        }).catch(function() {
+        }).catch(() => {
             showToast('Erreur lors de la copie', 'error');
         });
     }
@@ -935,17 +1345,16 @@
         isReady = !isReady;
         sendWS('player_ready', { ready: isReady });
         
-        var btn = document.getElementById('ready-btn');
-        var text = document.getElementById('ready-text');
-        
-        if (isReady) {
-            btn.classList.remove('btn-primary');
-            btn.classList.add('btn-warning');
-            text.textContent = 'Annuler';
-        } else {
-            btn.classList.remove('btn-warning');
-            btn.classList.add('btn-primary');
-            text.textContent = 'Je suis prêt !';
+        if (DOM.readyBtn) {
+            if (isReady) {
+                DOM.readyBtn.classList.remove('btn-primary');
+                DOM.readyBtn.classList.add('btn-warning');
+                DOM.readyText.textContent = 'Annuler';
+            } else {
+                DOM.readyBtn.classList.remove('btn-warning');
+                DOM.readyBtn.classList.add('btn-primary');
+                DOM.readyText.textContent = 'Je suis prêt !';
+            }
         }
     }
 
@@ -958,20 +1367,19 @@
     }
 
     function submitAnswer() {
-        if (hasAnsweredCorrectly) {
+        if (gameState.hasAnsweredCorrectly) {
             showToast('Vous avez déjà trouvé !', 'info');
             return;
         }
         
-        var input = document.getElementById('answer-input');
-        var answer = input.value.trim();
+        const answer = DOM.answerInput.value.trim();
         
         if (!answer) {
             showToast('Entrez une réponse', 'warning');
             return;
         }
 
-        sendWS('bt_answer', { answer: answer });
+        sendWS('bt_answer', { answer });
     }
 
     function leaveRoom() {
@@ -982,37 +1390,34 @@
     }
 
     function restartGame() {
-        fetch('/api/rooms/' + roomCode + '/restart', {
+        fetch(`/api/rooms/${roomCode}/restart`, {
             method: 'POST',
             credentials: 'same-origin'
         })
-        .then(function(response) { return response.json(); })
-        .then(function(data) {
+        .then(response => response.json())
+        .then(data => {
             if (data.success) {
                 showToast('Partie relancée !', 'success');
-                setTimeout(function() { window.location.reload(); }, 1000);
+                setTimeout(() => window.location.reload(), 1000);
             } else {
                 showToast(data.message || 'Erreur', 'error');
             }
         })
-        .catch(function(err) {
+        .catch(() => {
             showToast('Erreur de connexion', 'error');
         });
     }
 
     function updateStartButton() {
-        var startBtn = document.getElementById('start-btn');
-        var hint = document.getElementById('start-hint');
-        
-        if (!startBtn) return;
+        if (!DOM.startBtn) return;
 
-        var playerItems = document.querySelectorAll('.player-item');
-        var playerCount = playerItems.length;
-        var nonHostNotReady = 0;
+        const playerItems = document.querySelectorAll('.player-item');
+        const playerCount = playerItems.length;
+        let nonHostNotReady = 0;
 
-        playerItems.forEach(function(item) {
+        playerItems.forEach(item => {
             if (!item.classList.contains('is-host')) {
-                var readyIcon = item.querySelector('.player-ready-icon');
+                const readyIcon = item.querySelector('.player-ready-icon');
                 if (readyIcon && readyIcon.classList.contains('not-ready')) {
                     nonHostNotReady++;
                 }
@@ -1020,80 +1425,109 @@
         });
 
         // Permettre le mode solo OU tous prêts
-        var canStart = (playerCount === 1) || (nonHostNotReady === 0);
+        const canStart = (playerCount === 1) || (nonHostNotReady === 0);
         
-        startBtn.disabled = !canStart;
+        DOM.startBtn.disabled = !canStart;
         
-        if (hint) {
+        if (DOM.startHint) {
             if (playerCount === 1) {
-                hint.textContent = 'Mode solo disponible - Lancez quand vous voulez !';
+                DOM.startHint.textContent = 'Mode solo disponible - Lancez quand vous voulez !';
             } else if (canStart) {
-                hint.textContent = 'Tous les joueurs sont prêts !';
+                DOM.startHint.textContent = 'Tous les joueurs sont prêts !';
             } else {
-                hint.textContent = 'En attente de ' + nonHostNotReady + ' joueur(s)...';
+                DOM.startHint.textContent = `En attente de ${nonHostNotReady} joueur(s)...`;
             }
         }
     }
 
     function addPlayerToUI(player) {
-        var list = document.getElementById('players-list');
-        if (!list) return;
+        if (!DOM.playersList) return;
         
-        if (document.querySelector('[data-user-id="' + player.user_id + '"]')) return;
+        if (document.querySelector(`[data-user-id="${player.user_id}"]`)) return;
         
-        var div = document.createElement('div');
+        const div = document.createElement('div');
         div.className = 'player-item';
         div.dataset.userId = player.user_id;
-        div.innerHTML = '<div class="player-avatar">' + player.pseudo.charAt(0) + '</div>' +
-            '<div class="player-info"><div class="player-name">' + player.pseudo + '</div>' +
-            '<div class="player-status"><span class="text-muted">En attente</span></div></div>' +
-            '<div class="player-ready-icon not-ready"><span class="icon icon-timer icon-sm"></span></div>';
-        list.appendChild(div);
+        div.innerHTML = `
+            <div class="player-avatar">${player.pseudo.charAt(0)}</div>
+            <div class="player-info">
+                <div class="player-name">${player.pseudo}</div>
+                <div class="player-status"><span class="text-muted">En attente</span></div>
+            </div>
+            <div class="player-ready-icon not-ready">
+                <span class="icon icon-timer icon-sm"></span>
+            </div>
+        `;
+        DOM.playersList.appendChild(div);
         
-        document.getElementById('player-count').textContent = list.children.length;
+        DOM.playerCount.textContent = DOM.playersList.children.length;
         updateStartButton();
     }
 
     function removePlayerFromUI(userId) {
-        var el = document.querySelector('[data-user-id="' + userId + '"]');
+        const el = document.querySelector(`[data-user-id="${userId}"]`);
         if (el) el.remove();
         
-        var list = document.getElementById('players-list');
-        document.getElementById('player-count').textContent = list.children.length;
+        DOM.playerCount.textContent = DOM.playersList.children.length;
         updateStartButton();
     }
 
     // =========================================================================
     // INITIALISATION
     // =========================================================================
-    document.addEventListener('DOMContentLoaded', function() {
-        console.log('🎮 Initialisation salle:', roomCode, 'Status:', roomStatus);
+    document.addEventListener('DOMContentLoaded', () => {
+        console.log('[Init] 🎮 Démarrage - Salle:', roomCode, 'Status:', roomStatus);
+        
+        // Initialiser le cache DOM
+        initDOM();
+        
+        // Configurer l'audio
+        DOM.mainAudio.addEventListener('timeupdate', updateAudioProgress);
+        DOM.mainAudio.addEventListener('ended', () => {
+            audioState.isPlaying = false;
+            updatePlayButton(false);
+        });
+        DOM.mainAudio.volume = audioState.volume;
+        DOM.volumeSlider.value = audioState.volume * 100;
         
         // Afficher le bon état initial
         if (roomStatus === 'playing') {
-            document.getElementById('waiting-state').style.display = 'none';
-            document.getElementById('playing-state').style.display = 'block';
-            document.getElementById('scoreboard').style.display = 'block';
+            DOM.waitingState.classList.add('hidden');
+            DOM.playingState.classList.remove('hidden');
+            DOM.scoreboard.classList.remove('hidden');
         } else if (roomStatus === 'finished') {
-            document.getElementById('waiting-state').style.display = 'none';
-            document.getElementById('finished-state').style.display = 'block';
+            DOM.waitingState.classList.add('hidden');
+            DOM.finishedState.classList.remove('hidden');
         }
         
         // Connexion WebSocket
-        connectWebSocket(roomCode);
+        connectWebSocket();
         
         // Mettre à jour le bouton start
         updateStartButton();
         
         // Gestionnaire touche Entrée
-        var answerInput = document.getElementById('answer-input');
-        if (answerInput) {
-            answerInput.addEventListener('keypress', function(e) {
+        if (DOM.answerInput) {
+            DOM.answerInput.addEventListener('keypress', (e) => {
                 if (e.key === 'Enter') {
                     e.preventDefault();
                     submitAnswer();
                 }
             });
+        }
+        
+        // Ping périodique pour maintenir la connexion
+        setInterval(() => {
+            if (wsConnected) {
+                sendWS('ping', {});
+            }
+        }, 30000);
+    });
+
+    // Gérer la fermeture de page
+    window.addEventListener('beforeunload', () => {
+        if (ws) {
+            ws.close(1000, 'Page fermée');
         }
     });
     </script>

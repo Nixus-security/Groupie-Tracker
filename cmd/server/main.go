@@ -58,9 +58,9 @@ func main() {
 	// Initialiser le client Deezer (pas besoin de credentials)
 	spotifyClient := spotify.NewClient(spotify.Config{})
 	if err := spotifyClient.Authenticate(); err != nil {
-    log.Printf("[WARN] Erreur init Deezer: %v", err)
+		log.Printf("[WARN] Erreur init Deezer: %v", err)
 	} else {
-    log.Println("[OK] Client Deezer initialisé")
+		log.Println("[OK] Client Deezer initialisé")
 	}
 
 	// Initialiser les managers
@@ -78,13 +78,15 @@ func main() {
 	wsHandler := websocket.NewHandler()
 	log.Println("[OK] Handler WebSocket initialisé")
 
-	// >>> AJOUTER CES LIGNES <<<
 	// Connecter le handler Blind Test au WebSocket
 	blindtestHandler := blindtest.GetHandler()
 	wsHandler.SetBlindTestHandler(blindtestHandler)
 	log.Println("[OK] Handler Blind Test connecté")
 
-
+	// Connecter le handler Petit Bac au WebSocket
+	petitbacHandler := petitbac.GetHandler()
+	wsHandler.SetPetitBacHandler(petitbacHandler)
+	log.Println("[OK] Handler Petit Bac connecté")
 
 	// Initialiser les handlers
 	authHandler := auth.NewHandler(config.TemplateDir)
