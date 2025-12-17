@@ -5,7 +5,7 @@ import (
 	"log"
 	"sync"
 
-	_ "github.com/mattn/go-sqlite3"
+	_ "modernc.org/sqlite"
 )
 
 var (
@@ -16,7 +16,7 @@ var (
 func Init(dbPath string) error {
 	var err error
 	once.Do(func() {
-		db, err = sql.Open("sqlite3", dbPath+"?_foreign_keys=on")
+		db, err = sql.Open("sqlite", dbPath+"?_foreign_keys=on")
 		if err != nil {
 			return
 		}
