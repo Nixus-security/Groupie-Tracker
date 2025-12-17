@@ -1,6 +1,3 @@
-/**
- * Gestion des salles
- */
 class RoomManager {
   constructor(roomCode) {
     this.roomCode = roomCode;
@@ -12,11 +9,7 @@ class RoomManager {
     this.init();
   }
 
-  /**
-   * Initialise la salle
-   */
   init() {
-    // Éléments DOM
     this.elements = {
       playersList: document.getElementById('players-list'),
       readyBtn: document.getElementById('ready-btn'),
@@ -27,12 +20,10 @@ class RoomManager {
       roomStatus: document.getElementById('room-status')
     };
 
-    // Afficher le code
     if (this.elements.roomCode) {
       this.elements.roomCode.textContent = this.roomCode;
     }
 
-    // Connexion WebSocket
     this.ws = new GameWebSocket(this.roomCode, {
       onConnect: () => this.onConnect(),
       onDisconnect: () => this.onDisconnect(),
@@ -47,7 +38,6 @@ class RoomManager {
 
     this.ws.connect();
 
-    // Événements boutons
     if (this.elements.readyBtn) {
       this.elements.readyBtn.addEventListener('click', () => this.toggleReady());
     }
@@ -60,7 +50,6 @@ class RoomManager {
       this.elements.leaveBtn.addEventListener('click', () => this.leaveRoom());
     }
 
-    // Copier le code au clic
     if (this.elements.roomCode) {
       this.elements.roomCode.addEventListener('click', () => {
         navigator.clipboard.writeText(this.roomCode).then(() => {
@@ -72,7 +61,6 @@ class RoomManager {
     }
   }
 
-  // === Événements WebSocket ===
 
   onConnect() {
     console.log('✅ Connecté à la salle');
@@ -89,16 +77,12 @@ class RoomManager {
     this.showMessage(err.message || 'Erreur', 'danger');
   }
 
-  /**
-   * Mise à jour complète de la salle
-   */
   onRoomUpdate(data) {
     console.log('🏠 Mise à jour salle:', data);
     
     this.players = data.players || [];
     this.isHost = data.host_id === this.getCurrentUserId();
     
-    // Trouver si on est prêt
     const currentPlayer = this.players.find(p => p.user_id === this.getCurrentUserId());
     if (currentPlayer) {
       this.isReady = currentPlayer.is_ready;
@@ -120,7 +104,6 @@ class RoomManager {
   onPlayerReady(data) {
     console.log('✓ Joueur prêt:', data.pseudo, data.ready);
     
-    // Mettre à jour le joueur
     const player = this.players.find(p => p.user_id === data.user_id);
     if (player) {
       player.is_ready = data.ready;
@@ -137,7 +120,6 @@ class RoomManager {
     console.log('🎮 Partie lancée:', data);
     this.showMessage('La partie va commencer !', 'success');
     
-    // Rediriger vers la page du jeu
     const gameType = data.game_type;
     setTimeout(() => {
       if (gameType === 'blindtest') {
@@ -148,7 +130,6 @@ class RoomManager {
     }, 1000);
   }
 
-  // === Actions ===
 
   toggleReady() {
     this.isReady = !this.isReady;
@@ -172,7 +153,6 @@ class RoomManager {
     }
   }
 
-  // === UI ===
 
   updateUI(data) {
     this.updatePlayersList();
@@ -268,7 +248,6 @@ class RoomManager {
   }
 }
 
-// Initialisation automatique
 document.addEventListener('DOMContentLoaded', () => {
   const roomCodeEl = document.getElementById('room-code');
   const roomCode = roomCodeEl ? roomCodeEl.textContent.trim() : 

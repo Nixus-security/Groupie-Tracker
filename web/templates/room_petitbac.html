@@ -114,7 +114,7 @@
                         </div>
                         {{if .Player.IsHost}}
                         <button id="startBtn" class="btn btn-success btn-lg" onclick="startGame()" disabled style="margin-top: 1rem;"><span class="icon icon-play icon-sm"></span><span>Lancer</span></button>
-                        <p class="text-muted" id="startHint" style="font-size: 0.875rem; margin-top: 0.5rem;">Tous les joueurs doivent être prêts</p>
+                        <p class="text-muted" id="startHint" style="font-size: 0.875rem; margin-top: 0.5rem;">Mode solo disponible</p>
                         {{else}}
                         <button id="readyBtn" class="btn btn-primary btn-lg" onclick="toggleReady()" style="margin-top: 1rem;"><span class="icon icon-check icon-sm"></span><span id="readyBtnText">Je suis prêt</span></button>
                         {{end}}
@@ -224,14 +224,10 @@
     <div class="toast-container" id="toastContainer"></div>
 
     <script>
-    // ============================================================================
-    // CONFIGURATION
-    // ============================================================================
     const CONFIG = { 
         WS_RECONNECT_DELAY: 1000, 
         WS_MAX_RECONNECT_ATTEMPTS: 10, 
-        TOAST_DURATION: 3000,
-        DEBUG: true  // Activer les logs de debug
+        TOAST_DURATION: 3000
     };
     
     const roomCode = '{{.Room.Code}}';
@@ -248,15 +244,11 @@
     let currentLetter = '';
     let hasSubmittedAnswers = false;
     let hasSubmittedVotes = false;
+    let currentPhase = 'waiting'; // waiting, answering, voting, results
     let DOM = {};
 
-    // ============================================================================
-    // FONCTIONS UTILITAIRES
-    // ============================================================================
     function debug(...args) {
-        if (CONFIG.DEBUG) {
-            console.log('[PetitBac]', ...args);
-        }
+        console.log('[PetitBac]', ...args);
     }
 
     function initDOM() {
@@ -294,7 +286,6 @@
             winnerScore: document.getElementById('winnerScore'),
             finalRanking: document.getElementById('finalRanking')
         };
-        debug('DOM initialisé', DOM);
     }
 
     function showToast(msg, type = 'info', duration = CONFIG.TOAST_DURATION) {
@@ -329,20 +320,14 @@
         return `${mins}:${secs.toString().padStart(2, '0')}`;
     }
 
-    // ============================================================================
-    // WEBSOCKET
-    // ============================================================================
     function connectWebSocket() {
-        if (ws && ws.readyState === WebSocket.OPEN) {
-            debug('WebSocket déjà connecté');
-            return;
-        }
+        if (ws && ws.readyState === WebSocket.OPEN) return;
         
         updateConnectionStatus('connecting');
         const protocol = location.protocol === 'https:' ? 'wss:' : 'ws:';
         const wsUrl = `${protocol}//${location.host}/ws/room/${roomCode}`;
         
-        debug('Connexion WebSocket à', wsUrl);
+        debug('Connexion WS à', wsUrl);
         
         try {
             ws = new WebSocket(wsUrl);
@@ -356,31 +341,27 @@
             };
             
             ws.onclose = (event) => {
-                debug('❌ WebSocket fermé', event.code, event.reason);
+                debug('❌ WebSocket fermé', event.code);
                 wsConnected = false;
                 updateConnectionStatus('disconnected');
-                
                 if (!event.wasClean && wsReconnectAttempts < CONFIG.WS_MAX_RECONNECT_ATTEMPTS) {
                     scheduleReconnect();
                 }
             };
             
-            ws.onerror = (error) => {
-                debug('❌ WebSocket erreur', error);
-                updateConnectionStatus('disconnected');
-            };
+            ws.onerror = () => updateConnectionStatus('disconnected');
             
             ws.onmessage = (event) => {
                 try {
                     const msg = JSON.parse(event.data);
-                    debug('📨 Message reçu:', msg.type, msg);
+                    debug('📨', msg.type, msg.payload);
                     handleMessage(msg);
                 } catch (err) {
-                    console.error('Erreur parsing message:', err, event.data);
+                    debug('❌ Parse error:', err.message, 'Data:', event.data.substring(0, 100));
                 }
             };
         } catch (e) {
-            console.error('Erreur création WebSocket:', e);
+            debug('❌ WS error:', e);
             scheduleReconnect();
         }
     }
@@ -389,68 +370,116 @@
         if (wsReconnectTimer) clearTimeout(wsReconnectTimer);
         wsReconnectAttempts++;
         const delay = Math.min(CONFIG.WS_RECONNECT_DELAY * wsReconnectAttempts, 10000);
-        debug(`Reconnexion dans ${delay}ms (tentative ${wsReconnectAttempts})`);
         updateConnectionStatus('connecting');
         wsReconnectTimer = setTimeout(connectWebSocket, delay);
     }
 
     function sendWS(type, payload = {}) {
-        if (!wsConnected || !ws || ws.readyState !== WebSocket.OPEN) {
-            debug('❌ Impossible d\'envoyer, WS non connecté');
-            return false;
-        }
-        const msg = { type, payload };
-        debug('📤 Envoi:', msg);
-        ws.send(JSON.stringify(msg));
+        if (!wsConnected || !ws || ws.readyState !== WebSocket.OPEN) return false;
+        debug('📤', type, payload);
+        ws.send(JSON.stringify({ type, payload }));
         return true;
     }
 
-    // ============================================================================
-    // GESTION DES MESSAGES
-    // ============================================================================
     function handleMessage(msg) {
-        const handlers = {
-            'player_joined': handlePlayerJoined,
-            'player_left': handlePlayerLeft,
-            'player_ready': handlePlayerReady,
-            'room_update': handleRoomUpdate,
-            'game_start': handleGameStart,
-            'new_round': handleNewRound,
-            'time_update': handleTimeUpdate,
-            'player_submitted': handlePlayerSubmitted,
-            'round_stop': handleRoundStop,
-            'voting_start': handleVotingStart,
-            'vote_time_update': handleVoteTimeUpdate,
-            'round_result': handleRoundResult,
-            'game_end': handleGameEnd,
-            'answers_submitted': () => showToast('Réponses envoyées', 'success'),
-            'votes_submitted': () => showToast('Votes envoyés', 'success'),
-            'error': (data) => showToast(data.message || msg.error || 'Erreur', 'error'),
-            'pong': () => debug('Pong reçu')
-        };
+        const type = msg.type;
+        const payload = msg.payload || {};
         
-        const handler = handlers[msg.type];
-        if (handler) {
-            handler(msg.payload || msg);
-        } else {
-            debug('⚠️ Message non géré:', msg.type);
+        switch(type) {
+            case 'player_joined':
+                showToast(`${payload.pseudo} a rejoint`, 'info');
+                setTimeout(() => location.reload(), 500);
+                break;
+                
+            case 'player_left':
+                showToast(`${payload.pseudo} a quitté`, 'warning');
+                document.querySelector(`[data-user-id="${payload.user_id}"]`)?.remove();
+                updateStartButton();
+                break;
+                
+            case 'player_ready':
+                handlePlayerReady(payload);
+                break;
+                
+            case 'room_update':
+                if (payload.status) updateGameState(payload.status);
+                break;
+                
+            case 'game_start':
+            case 'start_game':
+                debug('🎮 GAME START');
+                showToast('Partie lancée !', 'success');
+                DOM.waitingState.classList.add('hidden');
+                DOM.playingState.classList.remove('hidden');
+                DOM.scoreboard.classList.remove('hidden');
+                break;
+                
+            case 'new_round':
+                debug('📝 NEW ROUND', payload);
+                handleNewRound(payload);
+                break;
+                
+            case 'time_update':
+                handleTimeUpdate(payload);
+                break;
+                
+            case 'player_submitted':
+                document.querySelector(`[data-user-id="${payload.user_id}"]`)?.classList.add('submitted');
+                showToast(`${payload.pseudo} a terminé`, 'info');
+                break;
+                
+            case 'round_stop':
+                showToast(`${payload.stopped_by} a appuyé sur STOP!`, 'warning');
+                if (DOM.timer) {
+                    DOM.timer.textContent = 'STOP!';
+                    DOM.timer.className = 'danger';
+                }
+                if (!hasSubmittedAnswers) submitAnswers(new Event('submit'));
+                break;
+                
+            case 'voting_start':
+                debug('🗳️ VOTING START');
+                handleVotingStart(payload);
+                break;
+                
+            case 'vote_time_update':
+                if (DOM.voteTimer && currentPhase === 'voting') {
+                    DOM.voteTimer.textContent = formatTime(payload.time_left);
+                    DOM.voteTimer.className = payload.time_left <= 5 ? 'danger' : payload.time_left <= 10 ? 'warning' : '';
+                }
+                break;
+                
+            case 'round_result':
+                debug('📊 ROUND RESULT');
+                handleRoundResult(payload);
+                break;
+                
+            case 'game_end':
+                debug('🏆 GAME END');
+                handleGameEnd(payload);
+                break;
+                
+            case 'answers_submitted':
+                showToast('Réponses envoyées', 'success');
+                break;
+                
+            case 'votes_submitted':
+                showToast('Votes envoyés', 'success');
+                break;
+                
+            case 'error':
+                showToast(payload.message || msg.error || 'Erreur', 'error');
+                break;
+                
+            case 'pong':
+                break;
+                
+            default:
+                debug('⚠️ Message non géré:', type);
         }
     }
 
-    function handlePlayerJoined(data) {
-        showToast(`${data.pseudo} a rejoint la partie`, 'info');
-        setTimeout(() => location.reload(), 500);
-    }
-
-    function handlePlayerLeft(data) {
-        showToast(`${data.pseudo} a quitté`, 'warning');
-        const playerEl = document.querySelector(`[data-user-id="${data.user_id}"]`);
-        if (playerEl) playerEl.remove();
-        updateStartButton();
-    }
-
     function handlePlayerReady(data) {
-        debug('Player ready:', data);
         const item = document.querySelector(`[data-user-id="${data.user_id}"]`);
         if (item) {
             const statusEl = item.querySelector('.player-status');
@@ -464,57 +493,40 @@
         updateStartButton();
     }
 
-    function handleRoomUpdate(data) {
-        debug('Room update:', data);
-        if (data.status) {
-            updateGameState(data.status);
-        }
-    }
-
-    function handleGameStart(data) {
-        debug('🎮 Game start:', data);
-        showToast('Partie lancée !', 'success');
-        DOM.waitingState.classList.add('hidden');
-        DOM.playingState.classList.remove('hidden');
-        DOM.scoreboard.classList.remove('hidden');
-    }
-
     function handleNewRound(data) {
-        debug('📝 New round:', data);
+        debug('handleNewRound called with:', data);
         
-        // Extraire la lettre du payload - vérifier les différentes formes possibles
+        // IMPORTANT: Changer la phase AVANT tout
+        currentPhase = 'answering';
+        
+        // Extraire les données
         const letter = data.letter || data.Letter || '?';
         const round = data.round || data.Round || 1;
         const total = data.total || data.Total || 9;
         const duration = data.duration || data.Duration || 60;
         
-        debug('Lettre extraite:', letter, 'Round:', round, 'Total:', total);
-        
         currentLetter = letter;
         hasSubmittedAnswers = false;
         hasSubmittedVotes = false;
         
-        // Mettre à jour l'UI
+        // Mettre à jour l'affichage
         if (DOM.currentRound) DOM.currentRound.textContent = round;
         if (DOM.totalRounds) DOM.totalRounds.textContent = total;
-        if (DOM.currentLetter) {
-            DOM.currentLetter.textContent = letter;
-            debug('Lettre affichée dans DOM:', DOM.currentLetter.textContent);
-        }
+        if (DOM.currentLetter) DOM.currentLetter.textContent = letter;
         if (DOM.timer) {
             DOM.timer.textContent = formatTime(duration);
             DOM.timer.className = '';
         }
         
-        // Réinitialiser le formulaire
+        // IMPORTANT: Cacher toutes les autres phases et afficher answersPhase
+        if (DOM.votingPhase) DOM.votingPhase.classList.add('hidden');
+        if (DOM.roundResult) DOM.roundResult.classList.add('hidden');
+        if (DOM.answersPhase) DOM.answersPhase.classList.remove('hidden');
+        if (DOM.submittedMessage) DOM.submittedMessage.classList.add('hidden');
         if (DOM.answersForm) {
             DOM.answersForm.reset();
             DOM.answersForm.classList.remove('hidden');
         }
-        if (DOM.submittedMessage) DOM.submittedMessage.classList.add('hidden');
-        if (DOM.answersPhase) DOM.answersPhase.classList.remove('hidden');
-        if (DOM.votingPhase) DOM.votingPhase.classList.add('hidden');
-        if (DOM.roundResult) DOM.roundResult.classList.add('hidden');
         if (DOM.submitAnswersBtn) DOM.submitAnswersBtn.disabled = false;
         if (DOM.stopBtn) DOM.stopBtn.disabled = false;
         
@@ -524,65 +536,34 @@
             input.disabled = false;
         });
         
-        // Réinitialiser les indicateurs de joueurs
-        document.querySelectorAll('.player-item').forEach(item => {
-            item.classList.remove('submitted');
-        });
+        // Réinitialiser les joueurs
+        document.querySelectorAll('.player-item').forEach(item => item.classList.remove('submitted'));
         
-        // Focus sur le premier input
-        const firstInput = document.querySelector('input[name="artiste"]');
-        if (firstInput) firstInput.focus();
+        // Focus
+        setTimeout(() => document.querySelector('input[name="artiste"]')?.focus(), 100);
         
-        // Configurer la validation
         setupInputValidation();
-        
         showToast(`Manche ${round} - Lettre ${letter}`, 'info');
     }
 
     function handleTimeUpdate(data) {
-        const timeLeft = data.time_left;
-        if (DOM.timer) {
-            DOM.timer.textContent = formatTime(timeLeft);
-            DOM.timer.className = timeLeft <= 5 ? 'danger' : timeLeft <= 15 ? 'warning' : '';
-        }
-    }
-
-    function handleVoteTimeUpdate(data) {
-        if (DOM.voteTimer) {
-            DOM.voteTimer.textContent = formatTime(data.time_left);
-            DOM.voteTimer.className = data.time_left <= 5 ? 'danger' : data.time_left <= 10 ? 'warning' : '';
-        }
-    }
-
-    function handlePlayerSubmitted(data) {
-        debug('Player submitted:', data);
-        const playerEl = document.querySelector(`[data-user-id="${data.user_id}"]`);
-        if (playerEl) {
-            playerEl.classList.add('submitted');
-        }
-        showToast(`${data.pseudo} a terminé`, 'info');
-    }
-
-    function handleRoundStop(data) {
-        debug('Round stop:', data);
-        showToast(`${data.stopped_by} a appuyé sur STOP!`, 'warning');
-        if (DOM.timer) {
-            DOM.timer.textContent = 'STOP!';
-            DOM.timer.className = 'danger';
-        }
-        // Soumettre automatiquement si pas encore fait
-        if (!hasSubmittedAnswers) {
-            submitAnswers(new Event('submit'));
+        // Ne mettre à jour que si on est en phase de réponse
+        if (currentPhase === 'answering' && DOM.timer) {
+            DOM.timer.textContent = formatTime(data.time_left);
+            DOM.timer.className = data.time_left <= 5 ? 'danger' : data.time_left <= 15 ? 'warning' : '';
         }
     }
 
     function handleVotingStart(data) {
-        debug('🗳️ Voting start:', data);
+        currentPhase = 'voting';
         hasSubmittedVotes = false;
         currentVotes = {};
         
+        // IMPORTANT: Cacher answers, afficher voting
         if (DOM.answersPhase) DOM.answersPhase.classList.add('hidden');
+        if (DOM.roundResult) DOM.roundResult.classList.add('hidden');
         if (DOM.votingPhase) DOM.votingPhase.classList.remove('hidden');
+        
         if (DOM.voteTimer) {
             DOM.voteTimer.textContent = formatTime(data.duration || 30);
             DOM.voteTimer.className = '';
@@ -592,7 +573,7 @@
             DOM.submitVotesBtn.innerHTML = '<span class="icon icon-check icon-sm"></span><span>Valider</span>';
         }
         
-        buildVotingUI(data.answers, data.categories);
+        buildVotingUI(data.answers || [], data.categories);
     }
 
     function buildVotingUI(answers, categories) {
@@ -610,7 +591,7 @@
         const categoryList = categories || Object.keys(labels);
         
         categoryList.forEach(cat => {
-            const catAnswers = answers.filter(a => a.category === cat && a.answer?.trim());
+            const catAnswers = answers.filter(a => a.category === cat && a.answer && a.answer.trim());
             if (!catAnswers.length) return;
             
             const div = document.createElement('div');
@@ -621,23 +602,10 @@
                 const key = `${answer.user_id}_${cat}`;
                 
                 if (String(answer.user_id) === String(userId)) {
-                    // C'est notre propre réponse
-                    div.innerHTML += `
-                        <div class="vote-answer" style="opacity:0.6">
-                            <span><strong>${answer.pseudo}:</strong> ${answer.answer}</span>
-                            <span class="text-muted">(vous)</span>
-                        </div>`;
+                    div.innerHTML += `<div class="vote-answer" style="opacity:0.6"><span><strong>${answer.pseudo}:</strong> ${answer.answer}</span><span class="text-muted">(vous)</span></div>`;
                 } else {
-                    // Réponse d'un autre joueur
-                    currentVotes[key] = true; // Par défaut: accepté
-                    div.innerHTML += `
-                        <div class="vote-answer">
-                            <span><strong>${answer.pseudo}:</strong> ${answer.answer}</span>
-                            <div class="vote-buttons">
-                                <button type="button" class="vote-btn accept active" data-vote="${key}_accept" onclick="vote('${answer.user_id}','${cat}',true)">✓</button>
-                                <button type="button" class="vote-btn reject" data-vote="${key}_reject" onclick="vote('${answer.user_id}','${cat}',false)">✗</button>
-                            </div>
-                        </div>`;
+                    currentVotes[key] = true;
+                    div.innerHTML += `<div class="vote-answer"><span><strong>${answer.pseudo}:</strong> ${answer.answer}</span><div class="vote-buttons"><button type="button" class="vote-btn accept active" data-vote="${key}_accept" onclick="vote('${answer.user_id}','${cat}',true)">✓</button><button type="button" class="vote-btn reject" data-vote="${key}_reject" onclick="vote('${answer.user_id}','${cat}',false)">✗</button></div></div>`;
                 }
             });
             
@@ -650,9 +618,11 @@
     }
 
     function handleRoundResult(data) {
-        debug('📊 Round result:', data);
+        currentPhase = 'results';
         
+        // IMPORTANT: Cacher voting, afficher results
         if (DOM.votingPhase) DOM.votingPhase.classList.add('hidden');
+        if (DOM.answersPhase) DOM.answersPhase.classList.add('hidden');
         if (DOM.roundResult) DOM.roundResult.classList.remove('hidden');
         
         if (DOM.roundScores) {
@@ -665,22 +635,17 @@
             });
         }
         
-        if (data.scores) {
-            updateScores(data.scores);
-        }
-        
-        if (DOM.nextRoundInfo) {
-            DOM.nextRoundInfo.textContent = 'Prochaine manche dans quelques secondes...';
-        }
+        if (data.scores) updateScores(data.scores);
+        if (DOM.nextRoundInfo) DOM.nextRoundInfo.textContent = 'Prochaine manche dans quelques secondes...';
     }
 
     function handleGameEnd(data) {
-        debug('🏆 Game end:', data);
+        currentPhase = 'finished';
         
-        if (DOM.playingState) DOM.playingState.classList.add('hidden');
-        if (DOM.finishedState) DOM.finishedState.classList.remove('hidden');
+        DOM.playingState.classList.add('hidden');
+        DOM.finishedState.classList.remove('hidden');
         
-        if (data.winner && DOM.winnerName && DOM.winnerScore) {
+        if (data.winner) {
             DOM.winnerName.textContent = data.winner.pseudo;
             DOM.winnerScore.textContent = `${data.winner.score} points`;
         }
@@ -689,38 +654,23 @@
             DOM.finalRanking.innerHTML = '<h4 style="margin-bottom:1rem">Classement final</h4>';
             const ol = document.createElement('ol');
             ol.style.listStyle = 'none';
-            
             (data.rankings || []).forEach((player, index) => {
                 const li = document.createElement('li');
                 li.style.cssText = 'display:flex;justify-content:space-between;padding:8px 12px;background:rgba(255,255,255,0.05);border-radius:8px;margin-bottom:4px';
                 li.innerHTML = `<span>${index + 1}. ${player.pseudo}</span><span style="font-family:var(--font-mono)">${player.score} pts</span>`;
                 ol.appendChild(li);
             });
-            
             DOM.finalRanking.appendChild(ol);
         }
         
         showToast('Partie terminée !', 'success', 5000);
     }
 
-    // ============================================================================
-    // FONCTIONS UI
-    // ============================================================================
     function updateScores(scores) {
         if (!scores || !DOM.scoreList) return;
         
         DOM.scoreList.innerHTML = '';
-        
-        // Convertir en tableau si nécessaire
-        let scoresArray = Array.isArray(scores) 
-            ? scores 
-            : Object.entries(scores).map(([id, data]) => ({
-                user_id: id,
-                pseudo: data.pseudo,
-                score: data.score
-            }));
-        
-        // Trier par score décroissant
+        let scoresArray = Array.isArray(scores) ? scores : Object.entries(scores).map(([id, data]) => ({ user_id: id, pseudo: data.pseudo, score: data.score }));
         scoresArray.sort((a, b) => b.score - a.score);
         
         scoresArray.forEach(player => {
@@ -728,11 +678,8 @@
             li.innerHTML = `<span style="flex:1">${player.pseudo}</span><span style="font-family:var(--font-mono);font-weight:600">${player.score}</span>`;
             DOM.scoreList.appendChild(li);
             
-            // Mettre à jour le score dans la liste des joueurs
             const playerScoreEl = document.querySelector(`[data-user-id="${player.user_id}"] .player-score`);
-            if (playerScoreEl) {
-                playerScoreEl.textContent = player.score;
-            }
+            if (playerScoreEl) playerScoreEl.textContent = player.score;
         });
     }
 
@@ -741,13 +688,15 @@
         
         const readyCount = document.querySelectorAll('.player-item.ready').length;
         const totalCount = document.querySelectorAll('.player-item').length;
-        const canStart = totalCount === 1 || readyCount >= totalCount - 1;
+        
+        // Mode solo autorisé (1 joueur) ou multijoueur (tous prêts sauf l'hôte)
+        const canStart = totalCount === 1 || (totalCount >= 2 && readyCount >= totalCount - 1);
         
         DOM.startBtn.disabled = !canStart;
         
         if (DOM.startHint) {
             if (totalCount === 1) {
-                DOM.startHint.textContent = 'Mode solo disponible';
+                DOM.startHint.textContent = 'Mode solo - Prêt à jouer !';
             } else if (canStart) {
                 DOM.startHint.textContent = 'Tous les joueurs sont prêts !';
             } else {
@@ -760,9 +709,7 @@
         if (DOM.waitingState) DOM.waitingState.classList.toggle('hidden', status !== 'waiting');
         if (DOM.playingState) DOM.playingState.classList.toggle('hidden', status !== 'playing');
         if (DOM.finishedState) DOM.finishedState.classList.toggle('hidden', status !== 'finished');
-        if (status !== 'waiting' && DOM.scoreboard) {
-            DOM.scoreboard.classList.remove('hidden');
-        }
+        if (status !== 'waiting' && DOM.scoreboard) DOM.scoreboard.classList.remove('hidden');
     }
 
     function setupInputValidation() {
@@ -770,9 +717,8 @@
             input.addEventListener('input', function() {
                 const value = this.value.trim();
                 this.classList.remove('valid', 'invalid');
-                
-                if (value.length > 0) {
-                    if (value[0].toUpperCase() === currentLetter) {
+                if (value.length > 0 && currentLetter) {
+                    if (value[0].toUpperCase() === currentLetter.toUpperCase()) {
                         this.classList.add('valid');
                     } else {
                         this.classList.add('invalid');
@@ -782,54 +728,36 @@
         });
     }
 
-    // ============================================================================
-    // ACTIONS UTILISATEUR
-    // ============================================================================
     function copyCode() {
         navigator.clipboard.writeText(roomCode)
             .then(() => showToast('Code copié !', 'success'))
-            .catch(() => showToast('Erreur de copie', 'error'));
+            .catch(() => showToast('Erreur', 'error'));
     }
 
     function toggleReady() {
         isReady = !isReady;
         sendWS('player_ready', { ready: isReady });
-        
         if (DOM.readyBtn) {
             DOM.readyBtn.classList.toggle('btn-primary', !isReady);
             DOM.readyBtn.classList.toggle('btn-warning', isReady);
         }
-        if (DOM.readyBtnText) {
-            DOM.readyBtnText.textContent = isReady ? 'Annuler' : 'Je suis prêt';
-        }
+        if (DOM.readyBtnText) DOM.readyBtnText.textContent = isReady ? 'Annuler' : 'Je suis prêt';
     }
 
     function startGame() {
-        if (!isHost) {
-            showToast('Seul l\'hôte peut lancer la partie', 'warning');
-            return;
-        }
-        debug('🎮 Envoi start_game');
+        if (!isHost) return showToast('Seul l\'hôte peut lancer', 'warning');
         sendWS('start_game', {});
     }
 
     function submitAnswers(event) {
         if (event) event.preventDefault();
-        
-        if (hasSubmittedAnswers) {
-            showToast('Réponses déjà envoyées', 'info');
-            return;
-        }
+        if (hasSubmittedAnswers) return showToast('Déjà envoyées', 'info');
         
         const formData = new FormData(DOM.answersForm);
         const answers = {};
-        for (let [key, value] of formData.entries()) {
-            answers[key] = value.trim();
-        }
+        for (let [key, value] of formData.entries()) answers[key] = value.trim();
         
-        debug('📝 Soumission des réponses:', answers);
         sendWS('submit_answers', { answers });
-        
         hasSubmittedAnswers = true;
         
         if (DOM.answersForm) DOM.answersForm.classList.add('hidden');
@@ -839,33 +767,20 @@
     }
 
     function stopRound() {
-        debug('🛑 STOP!');
         sendWS('stop_round', {});
     }
 
-    function vote(userId, category, accept) {
-        const key = `${userId}_${category}`;
+    function vote(targetUserId, category, accept) {
+        const key = `${targetUserId}_${category}`;
         currentVotes[key] = accept;
-        
-        // Mettre à jour l'UI
-        const acceptBtn = document.querySelector(`[data-vote="${key}_accept"]`);
-        const rejectBtn = document.querySelector(`[data-vote="${key}_reject"]`);
-        
-        if (acceptBtn) acceptBtn.classList.toggle('active', accept);
-        if (rejectBtn) rejectBtn.classList.toggle('active', !accept);
+        document.querySelector(`[data-vote="${key}_accept"]`)?.classList.toggle('active', accept);
+        document.querySelector(`[data-vote="${key}_reject"]`)?.classList.toggle('active', !accept);
     }
 
     function submitVotes() {
-        if (hasSubmittedVotes) {
-            showToast('Votes déjà envoyés', 'info');
-            return;
-        }
-        
-        debug('🗳️ Soumission des votes:', currentVotes);
+        if (hasSubmittedVotes) return showToast('Déjà envoyés', 'info');
         sendWS('submit_votes', { votes: currentVotes });
-        
         hasSubmittedVotes = true;
-        
         if (DOM.submitVotesBtn) {
             DOM.submitVotesBtn.disabled = true;
             DOM.submitVotesBtn.innerHTML = '✓ Votes envoyés';
@@ -873,55 +788,36 @@
     }
 
     function restartGame() {
-        fetch(`/api/rooms/${roomCode}/restart`, {
-            method: 'POST',
-            credentials: 'same-origin'
-        })
-        .then(r => r.json())
-        .then(data => {
-            if (data.success) {
-                showToast('Partie relancée !', 'success');
-                setTimeout(() => location.reload(), 1000);
-            } else {
-                showToast(data.message || 'Erreur', 'error');
-            }
-        })
-        .catch(() => showToast('Erreur réseau', 'error'));
+        fetch(`/api/rooms/${roomCode}/restart`, { method: 'POST', credentials: 'same-origin' })
+            .then(r => r.json())
+            .then(data => {
+                if (data.success) {
+                    showToast('Partie relancée !', 'success');
+                    setTimeout(() => location.reload(), 1000);
+                } else {
+                    showToast(data.message || 'Erreur', 'error');
+                }
+            })
+            .catch(() => showToast('Erreur', 'error'));
     }
 
     function leaveRoom(event) {
         if (event) event.preventDefault();
-        if (confirm('Voulez-vous vraiment quitter la partie ?')) {
+        if (confirm('Quitter la partie ?')) {
             sendWS('leave_room', {});
             location.href = '/rooms';
         }
     }
 
-    // ============================================================================
-    // INITIALISATION
-    // ============================================================================
     document.addEventListener('DOMContentLoaded', () => {
-        debug('🚀 Initialisation...');
+        debug('🚀 Init - roomCode=' + roomCode + ', isHost=' + isHost);
         initDOM();
         connectWebSocket();
-        
-        if (isHost) {
-            updateStartButton();
-        }
-        
-        // Ping périodique pour maintenir la connexion
-        setInterval(() => {
-            if (wsConnected) {
-                sendWS('ping', {});
-            }
-        }, 30000);
+        if (isHost) updateStartButton();
+        setInterval(() => { if (wsConnected) sendWS('ping', {}); }, 30000);
     });
 
-    window.addEventListener('beforeunload', () => {
-        if (ws) {
-            ws.close(1000, 'Page fermée');
-        }
-    });
+    window.addEventListener('beforeunload', () => { if (ws) ws.close(1000); });
     </script>
 </body>
 </html>

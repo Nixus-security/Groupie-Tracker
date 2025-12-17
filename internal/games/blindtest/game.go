@@ -1,4 +1,3 @@
-// Package blindtest gère la logique du jeu Blind Test
 package blindtest
 
 import (
@@ -13,24 +12,22 @@ import (
 	"groupie-tracker/internal/spotify"
 )
 
-// GameState représente l'état d'une partie de Blind Test
 type GameState struct {
 	RoomID       string                 `json:"room_id"`
 	CurrentRound int                    `json:"current_round"`
 	TotalRounds  int                    `json:"total_rounds"`
 	CurrentTrack *models.SpotifyTrack   `json:"current_track,omitempty"`
-	Tracks       []*models.SpotifyTrack `json:"-"` // Ne pas exposer les réponses
+	Tracks       []*models.SpotifyTrack `json:"-"`
 	TimeLeft     int                    `json:"time_left"`
-	Answers      map[int64]string       `json:"answers"`      // UserID -> réponse
-	HasAnswered  map[int64]bool         `json:"has_answered"` // UserID -> a répondu
+	Answers      map[int64]string       `json:"answers"`
+	HasAnswered  map[int64]bool         `json:"has_answered"`
 	IsRevealed   bool                   `json:"is_revealed"`
 	Timer        *time.Timer            `json:"-"`
 	Mutex        sync.RWMutex           `json:"-"`
 }
 
-// GameManager gère toutes les parties de Blind Test actives
 type GameManager struct {
-	games       map[string]*GameState // RoomID -> GameState
+	games       map[string]*GameState
 	mutex       sync.RWMutex
 	roomManager *rooms.Manager
 }
@@ -40,7 +37,6 @@ var (
 	gameManagerOnce     sync.Once
 )
 
-// GetGameManager retourne l'instance singleton du GameManager
 func GetGameManager() *GameManager {
 	gameManagerOnce.Do(func() {
 		gameManagerInstance = &GameManager{
@@ -51,9 +47,7 @@ func GetGameManager() *GameManager {
 	return gameManagerInstance
 }
 
-// StartGame démarre une nouvelle partie de Blind Test
 func (gm *GameManager) StartGame(roomID string, genre string, rounds int) (*GameState, error) {
-	// Récupérer les pistes depuis Spotify
 	client := spotify.GetClient()
 	if client == nil {
 		log.Println("[BlindTest] Client Spotify non initialisé")
@@ -66,12 +60,10 @@ func (gm *GameManager) StartGame(roomID string, genre string, rounds int) (*Game
 		return nil, err
 	}
 
-	// S'assurer qu'on a assez de pistes
 	if len(tracks) < rounds {
 		rounds = len(tracks)
 	}
 
-	// Créer l'état du jeu
 	state := &GameState{
 		RoomID:       roomID,
 		CurrentRound: 0,
@@ -86,7 +78,6 @@ func (gm *GameManager) StartGame(roomID string, genre string, rounds int) (*Game
 	gm.games[roomID] = state
 	gm.mutex.Unlock()
 
-	// Mettre à jour le statut de la salle
 	gm.roomManager.UpdateRoomStatus(roomID, models.RoomStatusPlaying)
 	gm.roomManager.ResetPlayerScores(roomID)
 
@@ -94,14 +85,12 @@ func (gm *GameManager) StartGame(roomID string, genre string, rounds int) (*Game
 	return state, nil
 }
 
-// GetGameState retourne l'état actuel du jeu
 func (gm *GameManager) GetGameState(roomID string) *GameState {
 	gm.mutex.RLock()
 	defer gm.mutex.RUnlock()
 	return gm.games[roomID]
 }
 
-// NextRound passe à la manche suivante
 func (gm *GameManager) NextRound(roomID string) (*RoundInfo, error) {
 	state := gm.GetGameState(roomID)
 	if state == nil {
@@ -111,12 +100,10 @@ func (gm *GameManager) NextRound(roomID string) (*RoundInfo, error) {
 	state.Mutex.Lock()
 	defer state.Mutex.Unlock()
 
-	// Vérifier si le jeu est terminé
 	if state.CurrentRound >= state.TotalRounds {
-		return nil, nil // Jeu terminé
+		return nil, nil
 	}
 
-	// Réinitialiser pour la nouvelle manche
 	state.CurrentRound++
 	state.CurrentTrack = state.Tracks[state.CurrentRound-1]
 	state.TimeLeft = models.BlindTestDefaultTime
@@ -134,7 +121,6 @@ func (gm *GameManager) NextRound(roomID string) (*RoundInfo, error) {
 	}, nil
 }
 
-// RoundInfo informations envoyées aux joueurs pour une manche
 type RoundInfo struct {
 	Round      int    `json:"round"`
 	Total      int    `json:"total"`
@@ -142,7 +128,6 @@ type RoundInfo struct {
 	Duration   int    `json:"duration"`
 }
 
-// SubmitAnswer soumet une réponse pour un joueur
 func (gm *GameManager) SubmitAnswer(roomID string, userID int64, answer string) (*AnswerResult, error) {
 	state := gm.GetGameState(roomID)
 	if state == nil {
@@ -152,26 +137,20 @@ func (gm *GameManager) SubmitAnswer(roomID string, userID int64, answer string) 
 	state.Mutex.Lock()
 	defer state.Mutex.Unlock()
 
-	// Vérifier si le joueur a déjà répondu correctement
 	if state.HasAnswered[userID] {
-		// Vérifier si sa réponse précédente était correcte
 		prevAnswer := state.Answers[userID]
 		if checkAnswer(prevAnswer, state.CurrentTrack.Name, state.CurrentTrack.Artist) {
 			return &AnswerResult{AlreadyAnswered: true}, nil
 		}
 	}
 
-	// Enregistrer la réponse
 	state.Answers[userID] = answer
 	state.HasAnswered[userID] = true
 
-	// Vérifier si la réponse est correcte
 	isCorrect := checkAnswer(answer, state.CurrentTrack.Name, state.CurrentTrack.Artist)
 
-	// Calculer les points
 	points := 0
 	if isCorrect {
-		// Plus de points si réponse rapide
 		points = calculatePoints(state.TimeLeft, models.BlindTestDefaultTime)
 		gm.roomManager.AddPlayerScore(roomID, userID, points)
 	}
@@ -184,14 +163,12 @@ func (gm *GameManager) SubmitAnswer(roomID string, userID int64, answer string) 
 	}, nil
 }
 
-// AnswerResult résultat d'une réponse
 type AnswerResult struct {
 	IsCorrect       bool `json:"is_correct"`
 	Points          int  `json:"points"`
 	AlreadyAnswered bool `json:"already_answered"`
 }
 
-// RevealAnswer révèle la réponse de la manche actuelle
 func (gm *GameManager) RevealAnswer(roomID string) *RevealInfo {
 	state := gm.GetGameState(roomID)
 	if state == nil {
@@ -211,7 +188,6 @@ func (gm *GameManager) RevealAnswer(roomID string) *RevealInfo {
 	}
 }
 
-// RevealInfo informations de révélation
 type RevealInfo struct {
 	TrackName  string `json:"track_name"`
 	ArtistName string `json:"artist_name"`
@@ -219,7 +195,6 @@ type RevealInfo struct {
 	ImageURL   string `json:"image_url"`
 }
 
-// GetScores retourne les scores actuels
 func (gm *GameManager) GetScores(roomID string) []PlayerScore {
 	room, err := gm.roomManager.GetRoom(roomID)
 	if err != nil {
@@ -238,7 +213,6 @@ func (gm *GameManager) GetScores(roomID string) []PlayerScore {
 		})
 	}
 
-	// Trier par score décroissant
 	for i := 0; i < len(scores)-1; i++ {
 		for j := i + 1; j < len(scores); j++ {
 			if scores[j].Score > scores[i].Score {
@@ -250,26 +224,22 @@ func (gm *GameManager) GetScores(roomID string) []PlayerScore {
 	return scores
 }
 
-// PlayerScore score d'un joueur
 type PlayerScore struct {
 	UserID int64  `json:"user_id"`
 	Pseudo string `json:"pseudo"`
 	Score  int    `json:"score"`
 }
 
-// EndGame termine la partie
 func (gm *GameManager) EndGame(roomID string) *GameResult {
 	state := gm.GetGameState(roomID)
 	if state == nil {
 		return nil
 	}
 
-	// Mettre à jour le statut de la salle
 	gm.roomManager.UpdateRoomStatus(roomID, models.RoomStatusFinished)
 
 	scores := gm.GetScores(roomID)
 
-	// Supprimer l'état du jeu
 	gm.mutex.Lock()
 	delete(gm.games, roomID)
 	gm.mutex.Unlock()
@@ -287,13 +257,11 @@ func (gm *GameManager) EndGame(roomID string) *GameResult {
 	}
 }
 
-// GameResult résultat final de la partie
 type GameResult struct {
 	Scores []PlayerScore `json:"scores"`
 	Winner string        `json:"winner"`
 }
 
-// IsGameOver vérifie si le jeu est terminé
 func (gm *GameManager) IsGameOver(roomID string) bool {
 	state := gm.GetGameState(roomID)
 	if state == nil {
@@ -304,17 +272,11 @@ func (gm *GameManager) IsGameOver(roomID string) bool {
 	return state.CurrentRound >= state.TotalRounds
 }
 
-// ============================================================================
-// FONCTIONS UTILITAIRES
-// ============================================================================
-
-// checkAnswer vérifie si une réponse est correcte
 func checkAnswer(answer, trackName, artistName string) bool {
 	answer = normalizeString(answer)
 	trackName = normalizeString(trackName)
 	artistName = normalizeString(artistName)
 
-	// Vérifier si la réponse contient le titre ou l'artiste
 	if strings.Contains(answer, trackName) || strings.Contains(trackName, answer) {
 		return true
 	}
@@ -322,7 +284,6 @@ func checkAnswer(answer, trackName, artistName string) bool {
 		return true
 	}
 
-	// Vérifier la similarité (tolérance aux fautes de frappe)
 	if similarity(answer, trackName) > 0.7 || similarity(answer, artistName) > 0.7 {
 		return true
 	}
@@ -330,11 +291,9 @@ func checkAnswer(answer, trackName, artistName string) bool {
 	return false
 }
 
-// normalizeString normalise une chaîne pour la comparaison
 func normalizeString(s string) string {
 	s = strings.ToLower(s)
 	s = strings.TrimSpace(s)
-	// Supprimer les accents courants
 	replacer := strings.NewReplacer(
 		"é", "e", "è", "e", "ê", "e", "ë", "e",
 		"à", "a", "â", "a", "ä", "a",
@@ -346,7 +305,6 @@ func normalizeString(s string) string {
 	return replacer.Replace(s)
 }
 
-// similarity calcule la similarité entre deux chaînes (Jaro-Winkler simplifié)
 func similarity(s1, s2 string) float64 {
 	if s1 == s2 {
 		return 1.0
@@ -355,7 +313,6 @@ func similarity(s1, s2 string) float64 {
 		return 0.0
 	}
 
-	// Algorithme de distance de Levenshtein simplifié
 	maxLen := len(s1)
 	if len(s2) > maxLen {
 		maxLen = len(s2)
@@ -365,7 +322,6 @@ func similarity(s1, s2 string) float64 {
 	return 1.0 - float64(distance)/float64(maxLen)
 }
 
-// levenshteinDistance calcule la distance de Levenshtein
 func levenshteinDistance(s1, s2 string) int {
 	if len(s1) == 0 {
 		return len(s2)
@@ -399,16 +355,12 @@ func levenshteinDistance(s1, s2 string) int {
 	return matrix[len(s1)][len(s2)]
 }
 
-// calculatePoints calcule les points en fonction du temps restant
 func calculatePoints(timeLeft, totalTime int) int {
-	// Points de base: 100
-	// Bonus temps: jusqu'à 50 points supplémentaires
 	basePoints := 100
 	timeBonus := int(float64(timeLeft) / float64(totalTime) * 50)
 	return basePoints + timeBonus
 }
 
-// ShuffleTracks mélange les pistes (utilisé pour varier les parties)
 func ShuffleTracks(tracks []*models.SpotifyTrack) {
 	rand.Shuffle(len(tracks), func(i, j int) {
 		tracks[i], tracks[j] = tracks[j], tracks[i]

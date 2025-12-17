@@ -6,6 +6,157 @@
     <title>{{.Title}} - Groupie Tracker</title>
     <link rel="stylesheet" href="/static/style.css">
     <link rel="stylesheet" href="/static/icons.css">
+    <style>
+        .petitbac-config {
+            display: none;
+            margin-top: 1.5rem;
+            padding: 1.5rem;
+            background: rgba(255,255,255,0.05);
+            border-radius: 12px;
+            border: 1px solid rgba(255,255,255,0.1);
+        }
+        .petitbac-config.visible {
+            display: block;
+            animation: slideDown 0.3s ease;
+        }
+        @keyframes slideDown {
+            from { opacity: 0; transform: translateY(-10px); }
+            to { opacity: 1; transform: translateY(0); }
+        }
+        .config-section {
+            margin-bottom: 1.5rem;
+        }
+        .config-section:last-child {
+            margin-bottom: 0;
+        }
+        .config-section h4 {
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            margin-bottom: 1rem;
+            color: var(--text-primary);
+        }
+        .categories-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fill, minmax(180px, 1fr));
+            gap: 0.75rem;
+        }
+        .category-checkbox {
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            padding: 0.75rem;
+            background: rgba(255,255,255,0.05);
+            border-radius: 8px;
+            cursor: pointer;
+            transition: all 0.2s;
+            border: 1px solid transparent;
+        }
+        .category-checkbox:hover {
+            background: rgba(255,255,255,0.1);
+        }
+        .category-checkbox.selected {
+            background: rgba(99, 102, 241, 0.2);
+            border-color: var(--primary);
+        }
+        .category-checkbox input {
+            display: none;
+        }
+        .category-checkbox .checkmark {
+            width: 20px;
+            height: 20px;
+            border: 2px solid rgba(255,255,255,0.3);
+            border-radius: 4px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            transition: all 0.2s;
+        }
+        .category-checkbox.selected .checkmark {
+            background: var(--primary);
+            border-color: var(--primary);
+        }
+        .category-checkbox.selected .checkmark::after {
+            content: "✓";
+            color: white;
+            font-size: 12px;
+        }
+        .custom-category {
+            display: flex;
+            gap: 0.5rem;
+            margin-top: 1rem;
+        }
+        .custom-category input {
+            flex: 1;
+        }
+        .custom-categories-list {
+            display: flex;
+            flex-wrap: wrap;
+            gap: 0.5rem;
+            margin-top: 0.75rem;
+        }
+        .custom-category-tag {
+            display: flex;
+            align-items: center;
+            gap: 6px;
+            padding: 6px 12px;
+            background: rgba(16, 185, 129, 0.2);
+            border: 1px solid var(--success);
+            border-radius: 20px;
+            font-size: 0.875rem;
+        }
+        .custom-category-tag button {
+            background: none;
+            border: none;
+            color: var(--danger);
+            cursor: pointer;
+            padding: 0;
+            font-size: 1rem;
+            line-height: 1;
+        }
+        .slider-container {
+            display: flex;
+            align-items: center;
+            gap: 1rem;
+        }
+        .slider-container input[type="range"] {
+            flex: 1;
+            height: 8px;
+            background: rgba(255,255,255,0.1);
+            border-radius: 4px;
+            outline: none;
+        }
+        .slider-container input[type="range"]::-webkit-slider-thumb {
+            -webkit-appearance: none;
+            width: 20px;
+            height: 20px;
+            background: var(--primary);
+            border-radius: 50%;
+            cursor: pointer;
+        }
+        .slider-value {
+            min-width: 60px;
+            text-align: center;
+            font-family: var(--font-mono);
+            font-weight: 600;
+            color: var(--primary);
+        }
+        .config-summary {
+            margin-top: 1rem;
+            padding: 1rem;
+            background: rgba(99, 102, 241, 0.1);
+            border-radius: 8px;
+            border: 1px solid rgba(99, 102, 241, 0.3);
+        }
+        .config-summary p {
+            margin: 0.25rem 0;
+            font-size: 0.875rem;
+            color: var(--text-secondary);
+        }
+        .config-summary strong {
+            color: var(--primary);
+        }
+    </style>
 </head>
 <body>
     <!-- Navigation -->
@@ -40,7 +191,7 @@
         </header>
 
         <div class="create-room-card">
-            <form method="POST" action="/room/create" class="create-form">
+            <form method="POST" action="/room/create" class="create-form" id="createForm">
                 <!-- Nom de la salle -->
                 <div class="form-group">
                     <label for="room_name">
@@ -109,15 +260,121 @@
                                     </li>
                                     <li>
                                         <span class="icon icon-music icon-xs"></span>
-                                        5 catégories musicales
+                                        Catégories personnalisables
                                     </li>
                                     <li>
                                         <span class="icon icon-thumb-up icon-xs"></span>
-                                        Validation collective
+                                        Validation collective (2/3)
                                     </li>
                                 </ul>
                             </div>
                         </label>
+                    </div>
+                </div>
+
+                <!-- Configuration Petit Bac -->
+                <div id="petitbacConfig" class="petitbac-config">
+                    <h3 style="margin-bottom: 1.5rem; display: flex; align-items: center; gap: 8px;">
+                        <span class="icon icon-settings icon-sm"></span>
+                        Configuration du Petit Bac
+                    </h3>
+
+                    <!-- Catégories -->
+                    <div class="config-section">
+                        <h4>
+                            <span class="icon icon-list icon-sm"></span>
+                            Catégories
+                        </h4>
+                        <p class="text-muted" style="font-size: 0.875rem; margin-bottom: 1rem;">
+                            Sélectionnez les catégories pour la partie (minimum 3)
+                        </p>
+                        <div class="categories-grid" id="categoriesGrid">
+                            <label class="category-checkbox selected">
+                                <input type="checkbox" name="categories" value="artiste" checked>
+                                <span class="checkmark"></span>
+                                <span>🎤 Artiste</span>
+                            </label>
+                            <label class="category-checkbox selected">
+                                <input type="checkbox" name="categories" value="album" checked>
+                                <span class="checkmark"></span>
+                                <span>💿 Album</span>
+                            </label>
+                            <label class="category-checkbox selected">
+                                <input type="checkbox" name="categories" value="groupe" checked>
+                                <span class="checkmark"></span>
+                                <span>👥 Groupe</span>
+                            </label>
+                            <label class="category-checkbox selected">
+                                <input type="checkbox" name="categories" value="instrument" checked>
+                                <span class="checkmark"></span>
+                                <span>🎸 Instrument</span>
+                            </label>
+                            <label class="category-checkbox selected">
+                                <input type="checkbox" name="categories" value="featuring" checked>
+                                <span class="checkmark"></span>
+                                <span>🎵 Featuring</span>
+                            </label>
+                            <label class="category-checkbox">
+                                <input type="checkbox" name="categories" value="chanson">
+                                <span class="checkmark"></span>
+                                <span>🎼 Chanson</span>
+                            </label>
+                            <label class="category-checkbox">
+                                <input type="checkbox" name="categories" value="genre">
+                                <span class="checkmark"></span>
+                                <span>🎭 Genre musical</span>
+                            </label>
+                            <label class="category-checkbox">
+                                <input type="checkbox" name="categories" value="concert">
+                                <span class="checkmark"></span>
+                                <span>🎪 Lieu de concert</span>
+                            </label>
+                        </div>
+
+                        <!-- Ajout de catégorie personnalisée -->
+                        <div class="custom-category">
+                            <input type="text" id="customCategoryInput" class="form-control" placeholder="Nouvelle catégorie..." maxlength="30">
+                            <button type="button" class="btn btn-secondary" onclick="addCustomCategory()">
+                                <span class="icon icon-plus icon-sm"></span>
+                            </button>
+                        </div>
+                        <div class="custom-categories-list" id="customCategoriesList"></div>
+                    </div>
+
+                    <!-- Temps par manche -->
+                    <div class="config-section">
+                        <h4>
+                            <span class="icon icon-timer icon-sm"></span>
+                            Temps par manche
+                        </h4>
+                        <div class="slider-container">
+                            <span class="text-muted">30s</span>
+                            <input type="range" id="roundTime" name="round_time" min="30" max="120" value="60" step="10">
+                            <span class="text-muted">120s</span>
+                            <span class="slider-value" id="roundTimeValue">60s</span>
+                        </div>
+                    </div>
+
+                    <!-- Nombre de manches -->
+                    <div class="config-section">
+                        <h4>
+                            <span class="icon icon-hash icon-sm"></span>
+                            Nombre de manches
+                        </h4>
+                        <div class="slider-container">
+                            <span class="text-muted">3</span>
+                            <input type="range" id="roundCount" name="round_count" min="3" max="15" value="9" step="1">
+                            <span class="text-muted">15</span>
+                            <span class="slider-value" id="roundCountValue">9</span>
+                        </div>
+                    </div>
+
+                    <!-- Résumé de la configuration -->
+                    <div class="config-summary" id="configSummary">
+                        <p>📝 <strong id="summaryCategories">5</strong> catégories sélectionnées</p>
+                        <p>⏱️ <strong id="summaryTime">60</strong> secondes par manche</p>
+                        <p>🔄 <strong id="summaryRounds">9</strong> manches</p>
+                        <p>⏰ Durée estimée : <strong id="summaryDuration">~15 min</strong></p>
                     </div>
                 </div>
 
@@ -149,9 +406,28 @@
                 </ol>
             </div>
         </div>
+
+        <!-- Règles du Petit Bac -->
+        <div class="info-box" id="petitbacRules" style="display: none; margin-top: 1rem;">
+            <span class="info-icon">
+                <span class="icon icon-letters icon-lg"></span>
+            </span>
+            <div class="info-content">
+                <h4>Règles du Petit Bac Musical</h4>
+                <ul style="list-style: none; padding: 0;">
+                    <li style="padding: 0.5rem 0;">🔤 Une lettre aléatoire est tirée à chaque manche</li>
+                    <li style="padding: 0.5rem 0;">✍️ Trouvez un mot commençant par cette lettre pour chaque catégorie</li>
+                    <li style="padding: 0.5rem 0;">⏱️ Le tour s'arrête quand le temps est écoulé ou qu'un joueur a tout rempli</li>
+                    <li style="padding: 0.5rem 0;">👍 Les réponses sont validées collectivement (2/3 des votes)</li>
+                    <li style="padding: 0.5rem 0;">🏆 Points : <strong>2 pts</strong> si unique, <strong>1 pt</strong> si partagé, <strong>0 pt</strong> si invalide</li>
+                </ul>
+            </div>
+        </div>
     </div>
 
     <script>
+        let customCategories = [];
+
         // Animation au survol des options de jeu
         document.querySelectorAll('.game-type-option').forEach(option => {
             option.addEventListener('mouseenter', function() {
@@ -170,13 +446,124 @@
             });
         });
 
+        // Afficher/masquer la config Petit Bac et les règles
+        document.querySelectorAll('input[name="game_type"]').forEach(radio => {
+            radio.addEventListener('change', function() {
+                const config = document.getElementById('petitbacConfig');
+                const rules = document.getElementById('petitbacRules');
+                if (this.value === 'petitbac') {
+                    config.classList.add('visible');
+                    rules.style.display = 'flex';
+                } else {
+                    config.classList.remove('visible');
+                    rules.style.display = 'none';
+                }
+            });
+        });
+
+        // Gestion des checkboxes de catégories
+        document.querySelectorAll('.category-checkbox').forEach(label => {
+            label.addEventListener('click', function(e) {
+                if (e.target.tagName === 'INPUT') return;
+                const checkbox = this.querySelector('input');
+                checkbox.checked = !checkbox.checked;
+                this.classList.toggle('selected', checkbox.checked);
+                updateSummary();
+            });
+        });
+
+        // Slider temps par manche
+        document.getElementById('roundTime').addEventListener('input', function() {
+            document.getElementById('roundTimeValue').textContent = this.value + 's';
+            updateSummary();
+        });
+
+        // Slider nombre de manches
+        document.getElementById('roundCount').addEventListener('input', function() {
+            document.getElementById('roundCountValue').textContent = this.value;
+            updateSummary();
+        });
+
+        // Ajouter une catégorie personnalisée
+        function addCustomCategory() {
+            const input = document.getElementById('customCategoryInput');
+            const value = input.value.trim();
+            
+            if (!value || value.length < 2) {
+                alert('Le nom de la catégorie doit contenir au moins 2 caractères');
+                return;
+            }
+
+            if (customCategories.includes(value.toLowerCase())) {
+                alert('Cette catégorie existe déjà');
+                return;
+            }
+
+            customCategories.push(value.toLowerCase());
+            
+            // Ajouter le tag
+            const list = document.getElementById('customCategoriesList');
+            const tag = document.createElement('span');
+            tag.className = 'custom-category-tag';
+            tag.innerHTML = `
+                <span>✨ ${value}</span>
+                <button type="button" onclick="removeCustomCategory('${value.toLowerCase()}', this)">×</button>
+                <input type="hidden" name="categories" value="${value.toLowerCase()}">
+            `;
+            list.appendChild(tag);
+            
+            input.value = '';
+            updateSummary();
+        }
+
+        // Supprimer une catégorie personnalisée
+        function removeCustomCategory(value, btn) {
+            customCategories = customCategories.filter(c => c !== value);
+            btn.parentElement.remove();
+            updateSummary();
+        }
+
+        // Permettre l'ajout avec Entrée
+        document.getElementById('customCategoryInput').addEventListener('keypress', function(e) {
+            if (e.key === 'Enter') {
+                e.preventDefault();
+                addCustomCategory();
+            }
+        });
+
+        // Mettre à jour le résumé
+        function updateSummary() {
+            const selectedCategories = document.querySelectorAll('input[name="categories"]:checked').length + customCategories.length;
+            const roundTime = parseInt(document.getElementById('roundTime').value);
+            const roundCount = parseInt(document.getElementById('roundCount').value);
+            
+            // Estimation: temps de réponse + 30s de vote + 5s de résultats par manche
+            const estimatedMinutes = Math.ceil((roundTime + 35) * roundCount / 60);
+            
+            document.getElementById('summaryCategories').textContent = selectedCategories;
+            document.getElementById('summaryTime').textContent = roundTime;
+            document.getElementById('summaryRounds').textContent = roundCount;
+            document.getElementById('summaryDuration').textContent = `~${estimatedMinutes} min`;
+        }
+
         // Validation du formulaire
-        document.querySelector('.create-form').addEventListener('submit', function(e) {
+        document.getElementById('createForm').addEventListener('submit', function(e) {
             const name = document.getElementById('room_name').value.trim();
             if (name.length < 3) {
                 e.preventDefault();
                 alert('Le nom de la salle doit contenir au moins 3 caractères');
                 document.getElementById('room_name').focus();
+                return;
+            }
+
+            const gameType = document.querySelector('input[name="game_type"]:checked').value;
+            if (gameType === 'petitbac') {
+                const selectedCategories = document.querySelectorAll('input[name="categories"]:checked').length;
+                if (selectedCategories < 3) {
+                    e.preventDefault();
+                    alert('Veuillez sélectionner au moins 3 catégories');
+                    return;
+                }
             }
         });
 
@@ -189,6 +576,9 @@
             card.style.opacity = '1';
             card.style.transform = 'translateY(0)';
         }, 100);
+
+        // Init
+        updateSummary();
     </script>
 </body>
 </html>

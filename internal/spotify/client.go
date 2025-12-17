@@ -1,4 +1,3 @@
-// Package spotify gère l'intégration avec l'API Deezer (renommé pour compatibilité)
 package spotify
 
 import (
@@ -21,25 +20,21 @@ var (
 	ErrNoTracks = errors.New("aucune piste trouvée")
 )
 
-// Config configuration du client (gardé pour compatibilité)
 type Config struct {
 	ClientID     string
 	ClientSecret string
 }
 
-// Client gère les appels à l'API Deezer
 type Client struct {
 	httpClient *http.Client
 	mutex      *sync.RWMutex
 }
 
-// instance singleton
 var (
 	clientInstance *Client
 	clientOnce     sync.Once
 )
 
-// NewClient crée ou retourne le client singleton
 func NewClient(config Config) *Client {
 	clientOnce.Do(func() {
 		clientInstance = &Client{
@@ -51,22 +46,19 @@ func NewClient(config Config) *Client {
 	return clientInstance
 }
 
-// GetClient retourne l'instance du client
 func GetClient() *Client {
 	return clientInstance
 }
 
-// Authenticate - Deezer n'a pas besoin d'auth pour les données publiques
 func (c *Client) Authenticate() error {
 	log.Println("[Deezer] Pas d'authentification requise pour l'API publique")
 	return nil
 }
 
-// DeezerTrack représente une piste Deezer
 type DeezerTrack struct {
 	ID      int    `json:"id"`
 	Title   string `json:"title"`
-	Preview string `json:"preview"` // URL de preview 30s
+	Preview string `json:"preview"`
 	Artist  struct {
 		Name string `json:"name"`
 	} `json:"artist"`
@@ -76,7 +68,6 @@ type DeezerTrack struct {
 	} `json:"album"`
 }
 
-// GetChartTracks récupère les pistes du top chart
 func (c *Client) GetChartTracks(limit int) ([]*models.SpotifyTrack, error) {
 	apiURL := fmt.Sprintf("https://api.deezer.com/chart/0/tracks?limit=%d", limit)
 
@@ -96,7 +87,6 @@ func (c *Client) GetChartTracks(limit int) ([]*models.SpotifyTrack, error) {
 
 	var tracks []*models.SpotifyTrack
 	for _, item := range result.Data {
-		// Deezer a toujours des previews !
 		if item.Preview == "" {
 			continue
 		}
@@ -115,7 +105,6 @@ func (c *Client) GetChartTracks(limit int) ([]*models.SpotifyTrack, error) {
 	return tracks, nil
 }
 
-// SearchTracks recherche des pistes
 func (c *Client) SearchTracks(query string, limit int) ([]*models.SpotifyTrack, error) {
 	apiURL := fmt.Sprintf("https://api.deezer.com/search?q=%s&limit=%d", url.QueryEscape(query), limit)
 
@@ -153,7 +142,6 @@ func (c *Client) SearchTracks(query string, limit int) ([]*models.SpotifyTrack, 
 	return tracks, nil
 }
 
-// GetPlaylistTracks récupère les pistes d'une playlist Deezer
 func (c *Client) GetPlaylistTracks(playlistID string, limit int) ([]*models.SpotifyTrack, error) {
 	apiURL := fmt.Sprintf("https://api.deezer.com/playlist/%s/tracks?limit=%d", playlistID, limit)
 
@@ -191,11 +179,9 @@ func (c *Client) GetPlaylistTracks(playlistID string, limit int) ([]*models.Spot
 	return tracks, nil
 }
 
-// GetRandomTracksForBlindTest récupère des pistes aléatoires pour un Blind Test
 func (c *Client) GetRandomTracksForBlindTest(genre string, count int) ([]*models.SpotifyTrack, error) {
 	var allTracks []*models.SpotifyTrack
 
-	// 1. Récupérer le top chart mondial
 	chartTracks, err := c.GetChartTracks(50)
 	if err != nil {
 		log.Printf("[Deezer] Erreur chart: %v", err)
@@ -203,7 +189,6 @@ func (c *Client) GetRandomTracksForBlindTest(genre string, count int) ([]*models
 		allTracks = append(allTracks, chartTracks...)
 	}
 
-	// 2. Si pas assez, faire une recherche
 	if len(allTracks) < count {
 		searchQueries := []string{"hit 2024", "pop", "top"}
 		for _, query := range searchQueries {
@@ -222,7 +207,6 @@ func (c *Client) GetRandomTracksForBlindTest(genre string, count int) ([]*models
 		return nil, ErrNoTracks
 	}
 
-	// Supprimer les doublons
 	seen := make(map[string]bool)
 	uniqueTracks := make([]*models.SpotifyTrack, 0)
 	for _, track := range allTracks {
@@ -234,12 +218,10 @@ func (c *Client) GetRandomTracksForBlindTest(genre string, count int) ([]*models
 	}
 	allTracks = uniqueTracks
 
-	// Mélanger les pistes
 	rand.Shuffle(len(allTracks), func(i, j int) {
 		allTracks[i], allTracks[j] = allTracks[j], allTracks[i]
 	})
 
-	// Limiter au nombre demandé
 	if count > len(allTracks) {
 		count = len(allTracks)
 	}
@@ -248,7 +230,6 @@ func (c *Client) GetRandomTracksForBlindTest(genre string, count int) ([]*models
 	return allTracks[:count], nil
 }
 
-// GetAvailableGenres retourne les genres disponibles
 func GetAvailableGenres() []string {
 	return []string{"Top Global"}
 }

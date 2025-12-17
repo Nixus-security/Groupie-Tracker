@@ -1,12 +1,10 @@
-// Package database - migrations.go
-// Gère la création et mise à jour des tables SQLite
+
 package database
 
 import (
 	"log"
 )
 
-// RunMigrations exécute toutes les migrations
 func RunMigrations() error {
 	migrations := []struct {
 		name string
@@ -136,7 +134,6 @@ func RunMigrations() error {
 	return nil
 }
 
-// ResetDatabase supprime toutes les tables (pour tests)
 func ResetDatabase() error {
 	tables := []string{
 		"game_scores",

@@ -1,9 +1,3 @@
-/**
- * ============================================================================
- * GROUPIE-TRACKER - WebSocket Manager
- * ============================================================================
- */
-
 class WebSocketManager {
     constructor() {
         this.ws = null;
@@ -17,17 +11,11 @@ class WebSocketManager {
         this.pingInterval = null;
     }
 
-    /**
-     * Connecte au WebSocket pour une salle
-     * @param {string} roomCode - Code de la salle
-     * @param {number} userId - ID de l'utilisateur
-     */
     connect(roomCode, userId) {
         this.roomCode = roomCode;
         this.userId = userId;
 
         const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
-        // URL corrigée pour correspondre à la route Go: /ws/room/{code}
         const wsUrl = `${protocol}//${window.location.host}/ws/room/${roomCode}`;
 
         console.log('🔌 Connexion WebSocket:', wsUrl);
@@ -41,9 +29,6 @@ class WebSocketManager {
         }
     }
 
-    /**
-     * Configure les listeners d'événements WebSocket
-     */
     setupEventListeners() {
         this.ws.onopen = () => {
             console.log('✅ WebSocket connecté');
@@ -85,33 +70,21 @@ class WebSocketManager {
         };
     }
 
-    /**
-     * Gère les messages reçus
-     * @param {Object} message - Message WebSocket
-     */
     handleMessage(message) {
         console.log('📨 Message reçu:', message.type, message);
 
-        // Émettre l'événement correspondant au type de message
         this.emit(message.type, message.payload);
 
-        // Gérer les messages d'erreur
         if (message.type === 'error') {
             console.error('❌ Erreur serveur:', message.error);
             showToast(message.error, 'error');
         }
 
-        // Répondre aux pongs
         if (message.type === 'pong') {
             console.log('🏓 Pong reçu');
         }
     }
 
-    /**
-     * Envoie un message WebSocket
-     * @param {string} type - Type du message
-     * @param {Object} payload - Données du message
-     */
     send(type, payload = {}) {
         if (!this.isConnected || !this.ws) {
             console.warn('⚠️ WebSocket non connecté');
@@ -130,11 +103,6 @@ class WebSocketManager {
         }
     }
 
-    /**
-     * Enregistre un handler pour un type de message
-     * @param {string} type - Type du message
-     * @param {Function} handler - Fonction de callback
-     */
     on(type, handler) {
         if (!this.handlers.has(type)) {
             this.handlers.set(type, []);
@@ -142,11 +110,6 @@ class WebSocketManager {
         this.handlers.get(type).push(handler);
     }
 
-    /**
-     * Supprime un handler
-     * @param {string} type - Type du message
-     * @param {Function} handler - Fonction à supprimer
-     */
     off(type, handler) {
         if (this.handlers.has(type)) {
             const handlers = this.handlers.get(type);
@@ -157,11 +120,6 @@ class WebSocketManager {
         }
     }
 
-    /**
-     * Émet un événement aux handlers enregistrés
-     * @param {string} type - Type d'événement
-     * @param {*} data - Données de l'événement
-     */
     emit(type, data) {
         if (this.handlers.has(type)) {
             this.handlers.get(type).forEach(handler => {
@@ -174,9 +132,6 @@ class WebSocketManager {
         }
     }
 
-    /**
-     * Gère la reconnexion automatique
-     */
     handleReconnect() {
         if (this.reconnectAttempts >= this.maxReconnectAttempts) {
             console.error('❌ Nombre max de tentatives de reconnexion atteint');
@@ -195,9 +150,6 @@ class WebSocketManager {
         }, delay);
     }
 
-    /**
-     * Démarre l'intervalle de ping
-     */
     startPingInterval() {
         this.pingInterval = setInterval(() => {
             if (this.isConnected) {
@@ -206,9 +158,6 @@ class WebSocketManager {
         }, 30000); // Ping toutes les 30 secondes
     }
 
-    /**
-     * Arrête l'intervalle de ping
-     */
     stopPingInterval() {
         if (this.pingInterval) {
             clearInterval(this.pingInterval);
@@ -216,9 +165,6 @@ class WebSocketManager {
         }
     }
 
-    /**
-     * Ferme la connexion WebSocket
-     */
     disconnect() {
         this.stopPingInterval();
         if (this.ws) {
@@ -228,54 +174,27 @@ class WebSocketManager {
         this.isConnected = false;
     }
 
-    // =========================================================================
-    // MÉTHODES SPÉCIFIQUES AU JEU
-    // =========================================================================
 
-    /**
-     * Signale que le joueur est prêt
-     * @param {boolean} ready - État prêt
-     */
     setReady(ready) {
         this.send('player_ready', { ready });
     }
 
-    /**
-     * Quitte la salle
-     */
     leaveRoom() {
         this.send('leave_room');
     }
 
-    /**
-     * Démarre la partie (hôte uniquement)
-     */
     startGame() {
         this.send('start_game');
     }
 
-    /**
-     * Envoie une réponse Blind Test
-     * @param {string} answer - Réponse du joueur
-     */
     submitBlindTestAnswer(answer) {
         this.send('bt_answer', { answer });
     }
 
-    /**
-     * Envoie les réponses Petit Bac
-     * @param {Object} answers - Réponses par catégorie
-     */
     submitPetitBacAnswers(answers) {
         this.send('pb_answer', { answers });
     }
 
-    /**
-     * Envoie un vote Petit Bac
-     * @param {number} targetUserId - ID du joueur cible
-     * @param {string} category - Catégorie
-     * @param {boolean} isValid - Validité de la réponse
-     */
     submitPetitBacVote(targetUserId, category, isValid) {
         this.send('pb_vote', {
             target_user_id: targetUserId,
@@ -284,53 +203,34 @@ class WebSocketManager {
         });
     }
 
-    /**
-     * Stoppe la manche Petit Bac
-     */
     stopPetitBacRound() {
         this.send('pb_stop_round');
     }
 }
 
-// Instance globale
 const wsManager = new WebSocketManager();
 
-// ============================================================================
-// FONCTIONS UTILITAIRES
-// ============================================================================
 
-/**
- * Initialise la connexion WebSocket pour une salle
- * @param {string} roomCode - Code de la salle
- * @param {number} userId - ID de l'utilisateur
- */
 function initRoom(roomCode, userId) {
     wsManager.connect(roomCode, userId);
     setupRoomHandlers();
 }
 
-/**
- * Configure les handlers de base pour une salle
- */
 function setupRoomHandlers() {
-    // Mise à jour de la salle
     wsManager.on('room_update', (data) => {
         updateRoomUI(data);
     });
 
-    // Joueur rejoint
     wsManager.on('player_joined', (data) => {
         showToast(`${data.pseudo} a rejoint la salle`, 'info');
         addPlayerToList(data);
     });
 
-    // Joueur parti
     wsManager.on('player_left', (data) => {
         showToast(`${data.pseudo} a quitté la salle`, 'warning');
         removePlayerFromList(data.user_id);
     });
 
-    // Joueur prêt
     wsManager.on('player_ready', (data) => {
         updatePlayerReady(data.user_id, data.ready);
         if (data.ready) {
@@ -338,19 +238,13 @@ function setupRoomHandlers() {
         }
     });
 
-    // Démarrage du jeu
     wsManager.on('start_game', (data) => {
         showToast('La partie commence !', 'success');
         handleGameStart(data);
     });
 }
 
-/**
- * Met à jour l'interface de la salle
- * @param {Object} data - Données de la salle
- */
 function updateRoomUI(data) {
-    // Mettre à jour la liste des joueurs
     const playersList = document.getElementById('players-list');
     if (playersList && data.players) {
         playersList.innerHTML = '';
@@ -359,13 +253,11 @@ function updateRoomUI(data) {
         });
     }
 
-    // Mettre à jour le bouton de démarrage
     const startBtn = document.getElementById('start-btn');
     if (startBtn) {
         startBtn.disabled = !data.is_ready;
     }
 
-    // Mettre à jour le statut
     const statusBadge = document.querySelector('.room-status');
     if (statusBadge) {
         statusBadge.textContent = getStatusText(data.status);
@@ -373,15 +265,10 @@ function updateRoomUI(data) {
     }
 }
 
-/**
- * Ajoute un joueur à la liste
- * @param {Object} player - Données du joueur
- */
 function addPlayerToList(player) {
     const playersList = document.getElementById('players-list');
     if (!playersList) return;
 
-    // Vérifier si le joueur existe déjà
     let playerCard = document.querySelector(`[data-user-id="${player.user_id}"]`);
     
     if (!playerCard) {
@@ -410,10 +297,6 @@ function addPlayerToList(player) {
     playerCard.classList.toggle('disconnected', !player.connected);
 }
 
-/**
- * Supprime un joueur de la liste
- * @param {number} userId - ID du joueur
- */
 function removePlayerFromList(userId) {
     const playerCard = document.querySelector(`[data-user-id="${userId}"]`);
     if (playerCard) {
@@ -422,11 +305,6 @@ function removePlayerFromList(userId) {
     }
 }
 
-/**
- * Met à jour l'état "prêt" d'un joueur
- * @param {number} userId - ID du joueur
- * @param {boolean} ready - État prêt
- */
 function updatePlayerReady(userId, ready) {
     const playerCard = document.querySelector(`[data-user-id="${userId}"]`);
     if (playerCard) {
@@ -438,11 +316,6 @@ function updatePlayerReady(userId, ready) {
     }
 }
 
-/**
- * Retourne le texte du statut
- * @param {string} status - Code du statut
- * @returns {string} Texte du statut
- */
 function getStatusText(status) {
     const statusTexts = {
         'waiting': 'En attente',
@@ -452,22 +325,16 @@ function getStatusText(status) {
     return statusTexts[status] || status;
 }
 
-/**
- * Gère le démarrage d'une partie
- * @param {Object} data - Données du jeu
- */
 function handleGameStart(data) {
     const gameType = data.game_type;
     
     if (gameType === 'blindtest') {
-        // Rediriger ou initialiser le Blind Test
         if (typeof initBlindTest === 'function') {
             initBlindTest(data.config);
         } else {
             window.location.href = `/blindtest/${wsManager.roomCode}`;
         }
     } else if (gameType === 'petitbac') {
-        // Rediriger ou initialiser le Petit Bac
         if (typeof initPetitBac === 'function') {
             initPetitBac(data.config);
         } else {
@@ -476,18 +343,8 @@ function handleGameStart(data) {
     }
 }
 
-// ============================================================================
-// SYSTÈME DE TOAST NOTIFICATIONS
-// ============================================================================
 
-/**
- * Affiche une notification toast
- * @param {string} message - Message à afficher
- * @param {string} type - Type de notification (success, error, warning, info)
- * @param {number} duration - Durée d'affichage en ms
- */
 function showToast(message, type = 'info', duration = 3000) {
-    // Créer le conteneur si nécessaire
     let container = document.querySelector('.toast-container');
     if (!container) {
         container = document.createElement('div');
@@ -495,7 +352,6 @@ function showToast(message, type = 'info', duration = 3000) {
         document.body.appendChild(container);
     }
 
-    // Créer le toast
     const toast = document.createElement('div');
     toast.className = `toast toast-${type}`;
     
@@ -513,21 +369,13 @@ function showToast(message, type = 'info', duration = 3000) {
 
     container.appendChild(toast);
 
-    // Animation de sortie et suppression
     setTimeout(() => {
         toast.classList.add('toast-exit');
         setTimeout(() => toast.remove(), 300);
     }, duration);
 }
 
-// ============================================================================
-// UTILITAIRES
-// ============================================================================
 
-/**
- * Copie le code de la salle dans le presse-papier
- * @param {string} code - Code à copier
- */
 function copyRoomCode(code) {
     navigator.clipboard.writeText(code).then(() => {
         showToast('Code copié !', 'success');
@@ -536,22 +384,12 @@ function copyRoomCode(code) {
     });
 }
 
-/**
- * Formate un temps en secondes en MM:SS
- * @param {number} seconds - Temps en secondes
- * @returns {string} Temps formaté
- */
 function formatTime(seconds) {
     const mins = Math.floor(seconds / 60);
     const secs = seconds % 60;
     return `${mins.toString().padStart(2, '0')}:${secs.toString().padStart(2, '0')}`;
 }
 
-/**
- * Anime un élément avec une classe
- * @param {HTMLElement} element - Élément à animer
- * @param {string} animationClass - Classe d'animation
- */
 function animateElement(element, animationClass) {
     element.classList.add(animationClass);
     element.addEventListener('animationend', () => {
@@ -559,12 +397,6 @@ function animateElement(element, animationClass) {
     }, { once: true });
 }
 
-/**
- * Debounce une fonction
- * @param {Function} func - Fonction à debouncer
- * @param {number} wait - Délai en ms
- * @returns {Function} Fonction debouncée
- */
 function debounce(func, wait) {
     let timeout;
     return function executedFunction(...args) {
@@ -577,7 +409,6 @@ function debounce(func, wait) {
     };
 }
 
-// Export pour utilisation dans d'autres scripts
 window.wsManager = wsManager;
 window.initRoom = initRoom;
 window.showToast = showToast;

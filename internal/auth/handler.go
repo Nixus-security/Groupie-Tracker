@@ -1,5 +1,3 @@
-// Package auth - handler.go
-// Handlers HTTP pour inscription, connexion, déconnexion
 package auth
 
 import (
@@ -10,16 +8,13 @@ import (
 	"path/filepath"
 )
 
-// Handler gère les requêtes HTTP d'authentification
 type Handler struct {
 	service        *Service
 	sessionManager *SessionManager
 	templates      *template.Template
 }
 
-// NewHandler crée une nouvelle instance du handler
 func NewHandler(templatesDir string) *Handler {
-	// Fonctions personnalisées pour les templates
 	funcMap := template.FuncMap{
 		"slice": func(s string, start, end int) string {
 			if start >= len(s) {
@@ -35,7 +30,6 @@ func NewHandler(templatesDir string) *Handler {
 		},
 	}
 
-	// Charger les templates
 	tmpl, err := template.New("").Funcs(funcMap).ParseGlob(filepath.Join(templatesDir, "*.html"))
 	if err != nil {
 		log.Printf("⚠️ Erreur chargement templates auth: %v", err)
@@ -48,25 +42,17 @@ func NewHandler(templatesDir string) *Handler {
 	}
 }
 
-// RegisterRoutes enregistre les routes d'authentification
 func (h *Handler) RegisterRoutes(mux *http.ServeMux, authMiddleware *Middleware) {
-	// Pages (GET)
 	mux.Handle("/register", authMiddleware.RedirectIfAuth(http.HandlerFunc(h.RegisterPage)))
 	mux.Handle("/login", authMiddleware.RedirectIfAuth(http.HandlerFunc(h.LoginPage)))
 	mux.Handle("/logout", http.HandlerFunc(h.Logout))
 
-	// API (POST)
 	mux.HandleFunc("/api/auth/register", h.APIRegister)
 	mux.HandleFunc("/api/auth/login", h.APILogin)
 	mux.HandleFunc("/api/auth/logout", h.APILogout)
 	mux.Handle("/api/auth/me", authMiddleware.RequireAuthAPI(http.HandlerFunc(h.APIMe)))
 }
 
-// ============================================================================
-// PAGES HTML
-// ============================================================================
-
-// RegisterPage affiche la page d'inscription
 func (h *Handler) RegisterPage(w http.ResponseWriter, r *http.Request) {
 	if r.Method == http.MethodPost {
 		h.handleRegisterForm(w, r)
@@ -90,7 +76,6 @@ func (h *Handler) RegisterPage(w http.ResponseWriter, r *http.Request) {
 	}
 }
 
-// LoginPage affiche la page de connexion
 func (h *Handler) LoginPage(w http.ResponseWriter, r *http.Request) {
 	if r.Method == http.MethodPost {
 		h.handleLoginForm(w, r)
@@ -115,7 +100,6 @@ func (h *Handler) LoginPage(w http.ResponseWriter, r *http.Request) {
 	}
 }
 
-// Logout déconnecte l'utilisateur
 func (h *Handler) Logout(w http.ResponseWriter, r *http.Request) {
 	session, err := h.sessionManager.GetSessionFromRequest(r)
 	if err == nil {
@@ -125,35 +109,27 @@ func (h *Handler) Logout(w http.ResponseWriter, r *http.Request) {
 	http.Redirect(w, r, "/login", http.StatusSeeOther)
 }
 
-// ============================================================================
-// HANDLERS DE FORMULAIRES
-// ============================================================================
-
 func (h *Handler) handleRegisterForm(w http.ResponseWriter, r *http.Request) {
 	pseudo := r.FormValue("pseudo")
 	email := r.FormValue("email")
 	password := r.FormValue("password")
 	confirmPassword := r.FormValue("confirmPassword")
 	
-	// Support pour les deux noms de champ possibles
 	if confirmPassword == "" {
 		confirmPassword = r.FormValue("confirm_password")
 	}
 
-	// Vérifier que les mots de passe correspondent
 	if password != confirmPassword {
 		http.Redirect(w, r, "/register?error=Les+mots+de+passe+ne+correspondent+pas", http.StatusSeeOther)
 		return
 	}
 
-	// Créer l'utilisateur
 	user, err := h.service.Register(pseudo, email, password)
 	if err != nil {
 		http.Redirect(w, r, "/register?error="+err.Error(), http.StatusSeeOther)
 		return
 	}
 
-	// Créer une session
 	session, err := h.sessionManager.CreateSession(user.ID)
 	if err != nil {
 		http.Redirect(w, r, "/login?error=Erreur+création+session", http.StatusSeeOther)
@@ -165,7 +141,7 @@ func (h *Handler) handleRegisterForm(w http.ResponseWriter, r *http.Request) {
 }
 
 func (h *Handler) handleLoginForm(w http.ResponseWriter, r *http.Request) {
-	identifier := r.FormValue("identifier") // pseudo ou email
+	identifier := r.FormValue("identifier")
 	password := r.FormValue("password")
 	redirect := r.FormValue("redirect")
 
@@ -183,7 +159,6 @@ func (h *Handler) handleLoginForm(w http.ResponseWriter, r *http.Request) {
 
 	h.sessionManager.SetSessionCookie(w, session)
 
-	// Rediriger vers la page demandée ou l'accueil
 	if redirect != "" && redirect != "/login" && redirect != "/register" {
 		http.Redirect(w, r, redirect, http.StatusSeeOther)
 	} else {
@@ -191,11 +166,6 @@ func (h *Handler) handleLoginForm(w http.ResponseWriter, r *http.Request) {
 	}
 }
 
-// ============================================================================
-// API JSON
-// ============================================================================
-
-// RegisterRequest structure de la requête d'inscription
 type RegisterRequest struct {
 	Pseudo          string `json:"pseudo"`
 	Email           string `json:"email"`
@@ -203,27 +173,23 @@ type RegisterRequest struct {
 	ConfirmPassword string `json:"confirm_password"`
 }
 
-// LoginRequest structure de la requête de connexion
 type LoginRequest struct {
 	Identifier string `json:"identifier"`
 	Password   string `json:"password"`
 }
 
-// AuthResponse structure de la réponse d'authentification
 type AuthResponse struct {
 	Success bool         `json:"success"`
 	User    *UserDTO     `json:"user,omitempty"`
 	Error   string       `json:"error,omitempty"`
 }
 
-// UserDTO structure utilisateur pour l'API (sans données sensibles)
 type UserDTO struct {
 	ID     int64  `json:"id"`
 	Pseudo string `json:"pseudo"`
 	Email  string `json:"email"`
 }
 
-// APIRegister gère l'inscription via API JSON
 func (h *Handler) APIRegister(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "application/json")
 
@@ -272,7 +238,6 @@ func (h *Handler) APIRegister(w http.ResponseWriter, r *http.Request) {
 	})
 }
 
-// APILogin gère la connexion via API JSON
 func (h *Handler) APILogin(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "application/json")
 
@@ -315,7 +280,6 @@ func (h *Handler) APILogin(w http.ResponseWriter, r *http.Request) {
 	})
 }
 
-// APILogout gère la déconnexion via API
 func (h *Handler) APILogout(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "application/json")
 
@@ -328,7 +292,6 @@ func (h *Handler) APILogout(w http.ResponseWriter, r *http.Request) {
 	json.NewEncoder(w).Encode(AuthResponse{Success: true})
 }
 
-// APIMe retourne l'utilisateur connecté
 func (h *Handler) APIMe(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "application/json")
 
@@ -348,10 +311,6 @@ func (h *Handler) APIMe(w http.ResponseWriter, r *http.Request) {
 		},
 	})
 }
-
-// ============================================================================
-// TEMPLATES DE SECOURS (si les fichiers HTML ne sont pas trouvés)
-// ============================================================================
 
 func (h *Handler) renderBasicRegisterPage(w http.ResponseWriter, data map[string]interface{}) {
 	html := `<!DOCTYPE html>
@@ -448,7 +407,6 @@ func (h *Handler) renderBasicLoginPage(w http.ResponseWriter, data map[string]in
 	tmpl.Execute(w, data)
 }
 
-// HandleLogin gère GET et POST pour /login
 func (h *Handler) HandleLogin(w http.ResponseWriter, r *http.Request) {
 	if r.Method == http.MethodPost {
 		h.handleLoginForm(w, r)
@@ -457,7 +415,6 @@ func (h *Handler) HandleLogin(w http.ResponseWriter, r *http.Request) {
 	h.LoginPage(w, r)
 }
 
-// HandleRegister gère GET et POST pour /register
 func (h *Handler) HandleRegister(w http.ResponseWriter, r *http.Request) {
 	if r.Method == http.MethodPost {
 		h.handleRegisterForm(w, r)
@@ -466,7 +423,6 @@ func (h *Handler) HandleRegister(w http.ResponseWriter, r *http.Request) {
 	h.RegisterPage(w, r)
 }
 
-// HandleLogout gère la déconnexion
 func (h *Handler) HandleLogout(w http.ResponseWriter, r *http.Request) {
 	h.Logout(w, r)
 }

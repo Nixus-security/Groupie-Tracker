@@ -1,4 +1,3 @@
-// Package petitbac gère la logique du jeu Petit Bac Musical
 package petitbac
 
 import (
@@ -12,47 +11,43 @@ import (
 	"groupie-tracker/internal/rooms"
 )
 
-// Lettres disponibles pour le Petit Bac (sans les lettres difficiles)
 var AvailableLetters = []string{
 	"A", "B", "C", "D", "E", "F", "G", "H", "I", "J", "K", "L", "M",
 	"N", "O", "P", "R", "S", "T", "V",
 }
 
-// GameState représente l'état d'une partie de Petit Bac
 type GameState struct {
-	RoomID        string                       `json:"room_id"`
-	CurrentRound  int                          `json:"current_round"`
-	TotalRounds   int                          `json:"total_rounds"`
-	CurrentLetter string                       `json:"current_letter"`
-	UsedLetters   []string                     `json:"used_letters"`
-	Categories    []string                     `json:"categories"`
-	Answers       map[int64]map[string]string  `json:"answers"`     // UserID -> Category -> Answer
-	HasSubmitted  map[int64]bool               `json:"has_submitted"` // UserID -> a soumis
-	Votes         map[int64]map[string][]int64 `json:"votes"`       // UserID -> Category -> VotersIDs
-	RoundStoppedBy int64                       `json:"round_stopped_by"`
-	TimeLeft      int                          `json:"time_left"`
-	Phase         GamePhase                    `json:"phase"`
-	Timer         *time.Timer                  `json:"-"`
-	Mutex         sync.RWMutex                 `json:"-"`
+	RoomID         string                       `json:"room_id"`
+	CurrentRound   int                          `json:"current_round"`
+	TotalRounds    int                          `json:"total_rounds"`
+	CurrentLetter  string                       `json:"current_letter"`
+	UsedLetters    []string                     `json:"used_letters"`
+	Categories     []string                     `json:"categories"`
+	Answers        map[int64]map[string]string  `json:"answers"`
+	HasSubmitted   map[int64]bool               `json:"has_submitted"`
+	Votes          map[int64]map[string][]int64 `json:"votes"`
+	RoundStoppedBy int64                        `json:"round_stopped_by"`
+	TimeLeft       int                          `json:"time_left"`
+	RoundDuration  int                          `json:"round_duration"`
+	Phase          GamePhase                    `json:"phase"`
+	Timer          *time.Timer                  `json:"-"`
+	Mutex          sync.RWMutex                 `json:"-"`
 }
 
-// GamePhase phase de jeu
 type GamePhase string
 
 const (
-	PhaseWaiting  GamePhase = "waiting"
+	PhaseWaiting   GamePhase = "waiting"
 	PhaseAnswering GamePhase = "answering"
-	PhaseVoting   GamePhase = "voting"
-	PhaseResults  GamePhase = "results"
+	PhaseVoting    GamePhase = "voting"
+	PhaseResults   GamePhase = "results"
 )
 
-// Constantes de temps
 const (
-	AnswerTime = 60  // Temps pour répondre en secondes
-	VoteTime   = 30  // Temps pour voter en secondes
+	DefaultAnswerTime = 60
+	VoteTime          = 30
 )
 
-// GameManager gère toutes les parties de Petit Bac actives
 type GameManager struct {
 	games       map[string]*GameState
 	mutex       sync.RWMutex
@@ -64,7 +59,6 @@ var (
 	gameManagerOnce     sync.Once
 )
 
-// GetGameManager retourne l'instance singleton du GameManager
 func GetGameManager() *GameManager {
 	gameManagerOnce.Do(func() {
 		gameManagerInstance = &GameManager{
@@ -75,8 +69,11 @@ func GetGameManager() *GameManager {
 	return gameManagerInstance
 }
 
-// StartGame démarre une nouvelle partie de Petit Bac
 func (gm *GameManager) StartGame(roomID string, categories []string, rounds int) (*GameState, error) {
+	return gm.StartGameWithDuration(roomID, categories, rounds, DefaultAnswerTime)
+}
+
+func (gm *GameManager) StartGameWithDuration(roomID string, categories []string, rounds int, duration int) (*GameState, error) {
 	if len(categories) == 0 {
 		categories = models.DefaultPetitBacCategories
 	}
@@ -85,35 +82,37 @@ func (gm *GameManager) StartGame(roomID string, categories []string, rounds int)
 		rounds = models.NbrsManche
 	}
 
+	if duration <= 0 {
+		duration = DefaultAnswerTime
+	}
+
 	state := &GameState{
-		RoomID:       roomID,
-		CurrentRound: 0,
-		TotalRounds:  rounds,
-		Categories:   categories,
-		UsedLetters:  []string{},
-		Phase:        PhaseWaiting,
+		RoomID:        roomID,
+		CurrentRound:  0,
+		TotalRounds:   rounds,
+		Categories:    categories,
+		UsedLetters:   []string{},
+		RoundDuration: duration,
+		Phase:         PhaseWaiting,
 	}
 
 	gm.mutex.Lock()
 	gm.games[roomID] = state
 	gm.mutex.Unlock()
 
-	// Mettre à jour le statut de la salle
 	gm.roomManager.UpdateRoomStatus(roomID, models.RoomStatusPlaying)
 	gm.roomManager.ResetPlayerScores(roomID)
 
-	log.Printf("[PetitBac] Partie démarrée dans la salle %s avec %d manches", roomID, rounds)
+	log.Printf("[PetitBac] Partie démarrée dans la salle %s avec %d manches, %d sec/manche, catégories: %v", roomID, rounds, duration, categories)
 	return state, nil
 }
 
-// GetGameState retourne l'état actuel du jeu
 func (gm *GameManager) GetGameState(roomID string) *GameState {
 	gm.mutex.RLock()
 	defer gm.mutex.RUnlock()
 	return gm.games[roomID]
 }
 
-// NextRound passe à la manche suivante
 func (gm *GameManager) NextRound(roomID string) (*RoundInfo, error) {
 	state := gm.GetGameState(roomID)
 	if state == nil {
@@ -123,19 +122,16 @@ func (gm *GameManager) NextRound(roomID string) (*RoundInfo, error) {
 	state.Mutex.Lock()
 	defer state.Mutex.Unlock()
 
-	// Vérifier si le jeu est terminé
 	if state.CurrentRound >= state.TotalRounds {
 		return nil, nil
 	}
 
-	// Tirer une nouvelle lettre non utilisée
 	letter := gm.pickRandomLetter(state.UsedLetters)
 	state.UsedLetters = append(state.UsedLetters, letter)
 
-	// Réinitialiser pour la nouvelle manche
 	state.CurrentRound++
 	state.CurrentLetter = letter
-	state.TimeLeft = AnswerTime
+	state.TimeLeft = state.RoundDuration
 	state.Answers = make(map[int64]map[string]string)
 	state.HasSubmitted = make(map[int64]bool)
 	state.Votes = make(map[int64]map[string][]int64)
@@ -149,11 +145,10 @@ func (gm *GameManager) NextRound(roomID string) (*RoundInfo, error) {
 		Total:      state.TotalRounds,
 		Letter:     letter,
 		Categories: state.Categories,
-		Duration:   state.TimeLeft,
+		Duration:   state.RoundDuration,
 	}, nil
 }
 
-// RoundInfo informations envoyées aux joueurs pour une manche
 type RoundInfo struct {
 	Round      int      `json:"round"`
 	Total      int      `json:"total"`
@@ -162,7 +157,6 @@ type RoundInfo struct {
 	Duration   int      `json:"duration"`
 }
 
-// SubmitAnswers soumet les réponses d'un joueur
 func (gm *GameManager) SubmitAnswers(roomID string, userID int64, answers map[string]string) error {
 	state := gm.GetGameState(roomID)
 	if state == nil {
@@ -176,15 +170,13 @@ func (gm *GameManager) SubmitAnswers(roomID string, userID int64, answers map[st
 		return nil
 	}
 
-	// Valider et nettoyer les réponses
 	cleanAnswers := make(map[string]string)
 	for _, cat := range state.Categories {
 		answer := strings.TrimSpace(answers[cat])
-		// Vérifier que la réponse commence par la bonne lettre
 		if len(answer) > 0 && strings.ToUpper(string(answer[0])) == state.CurrentLetter {
 			cleanAnswers[cat] = answer
 		} else {
-			cleanAnswers[cat] = "" // Réponse invalide
+			cleanAnswers[cat] = ""
 		}
 	}
 
@@ -195,7 +187,6 @@ func (gm *GameManager) SubmitAnswers(roomID string, userID int64, answers map[st
 	return nil
 }
 
-// StopRound arrête la manche (appelé par un joueur qui a fini)
 func (gm *GameManager) StopRound(roomID string, userID int64) error {
 	state := gm.GetGameState(roomID)
 	if state == nil {
@@ -211,11 +202,33 @@ func (gm *GameManager) StopRound(roomID string, userID int64) error {
 
 	state.RoundStoppedBy = userID
 	log.Printf("[PetitBac] Manche arrêtée par le joueur %d", userID)
-	
+
 	return nil
 }
 
-// StartVoting démarre la phase de vote
+func (gm *GameManager) HasPlayerFilledAllCategories(roomID string, userID int64) bool {
+	state := gm.GetGameState(roomID)
+	if state == nil {
+		return false
+	}
+
+	state.Mutex.RLock()
+	defer state.Mutex.RUnlock()
+
+	answers, exists := state.Answers[userID]
+	if !exists {
+		return false
+	}
+
+	for _, cat := range state.Categories {
+		if answer, ok := answers[cat]; !ok || answer == "" {
+			return false
+		}
+	}
+
+	return true
+}
+
 func (gm *GameManager) StartVoting(roomID string) *VotingInfo {
 	state := gm.GetGameState(roomID)
 	if state == nil {
@@ -228,8 +241,7 @@ func (gm *GameManager) StartVoting(roomID string) *VotingInfo {
 	state.Phase = PhaseVoting
 	state.TimeLeft = VoteTime
 
-	// Préparer les réponses à voter
-	allAnswers := make(map[string]map[int64]string) // Category -> UserID -> Answer
+	allAnswers := make(map[string]map[int64]string)
 	for _, cat := range state.Categories {
 		allAnswers[cat] = make(map[int64]string)
 		for userID, answers := range state.Answers {
@@ -248,14 +260,12 @@ func (gm *GameManager) StartVoting(roomID string) *VotingInfo {
 	}
 }
 
-// VotingInfo informations pour la phase de vote
 type VotingInfo struct {
 	Answers    map[string]map[int64]string `json:"answers"`
 	Duration   int                         `json:"duration"`
 	Categories []string                    `json:"categories"`
 }
 
-// SubmitVote soumet un vote contre une réponse
 func (gm *GameManager) SubmitVote(roomID string, voterID int64, targetUserID int64, category string, reject bool) error {
 	state := gm.GetGameState(roomID)
 	if state == nil {
@@ -269,25 +279,21 @@ func (gm *GameManager) SubmitVote(roomID string, voterID int64, targetUserID int
 		return nil
 	}
 
-	// Ne peut pas voter pour soi-même
 	if voterID == targetUserID {
 		return nil
 	}
 
-	// Initialiser les votes si nécessaire
 	if state.Votes[targetUserID] == nil {
 		state.Votes[targetUserID] = make(map[string][]int64)
 	}
 
 	if reject {
-		// Ajouter le vote de rejet
 		state.Votes[targetUserID][category] = append(state.Votes[targetUserID][category], voterID)
 	}
 
 	return nil
 }
 
-// CalculateRoundScores calcule les scores de la manche
 func (gm *GameManager) CalculateRoundScores(roomID string) *RoundScores {
 	state := gm.GetGameState(roomID)
 	if state == nil {
@@ -313,23 +319,30 @@ func (gm *GameManager) CalculateRoundScores(roomID string) *RoundScores {
 
 	for userID, answers := range state.Answers {
 		details[userID] = make(map[string]AnswerScore)
-		
+
 		for category, answer := range answers {
 			if answer == "" {
 				details[userID][category] = AnswerScore{Answer: "", Points: 0, Rejected: false}
 				continue
 			}
 
-			// Compter les votes de rejet
 			rejectVotes := 0
 			if state.Votes[userID] != nil {
 				rejectVotes = len(state.Votes[userID][category])
 			}
 
-			// Réponse rejetée si majorité de votes contre
-			rejected := rejectVotes > totalPlayers/2
+			potentialVoters := totalPlayers - 1
+			if potentialVoters <= 0 {
+				potentialVoters = 1
+			}
 
-			// Calculer les points
+			rejectThreshold := (potentialVoters + 2) / 3
+			rejected := rejectVotes >= rejectThreshold
+
+			if totalPlayers == 1 {
+				rejected = false
+			}
+
 			points := 0
 			if !rejected {
 				points = gm.calculateAnswerPoints(category, answer, state)
@@ -344,7 +357,6 @@ func (gm *GameManager) CalculateRoundScores(roomID string) *RoundScores {
 		}
 	}
 
-	// Ajouter les scores à la salle
 	for userID, pts := range scores {
 		gm.roomManager.AddPlayerScore(roomID, userID, pts)
 	}
@@ -357,39 +369,34 @@ func (gm *GameManager) CalculateRoundScores(roomID string) *RoundScores {
 	}
 }
 
-// AnswerScore score détaillé d'une réponse
 type AnswerScore struct {
 	Answer   string `json:"answer"`
 	Points   int    `json:"points"`
 	Rejected bool   `json:"rejected"`
 }
 
-// RoundScores scores de la manche
 type RoundScores struct {
 	Scores  map[int64]int                    `json:"scores"`
 	Details map[int64]map[string]AnswerScore `json:"details"`
 }
 
-// calculateAnswerPoints calcule les points pour une réponse
 func (gm *GameManager) calculateAnswerPoints(category, answer string, state *GameState) int {
-	// Vérifier si c'est une réponse unique
-	answerLower := strings.ToLower(answer)
+	answerLower := strings.ToLower(strings.TrimSpace(answer))
 	count := 0
-	
+
 	for _, answers := range state.Answers {
-		if strings.ToLower(answers[category]) == answerLower {
+		otherAnswer := strings.ToLower(strings.TrimSpace(answers[category]))
+		if otherAnswer == answerLower {
 			count++
 		}
 	}
 
-	// Points: 10 si unique, 5 si partagé
 	if count == 1 {
-		return 10
+		return 2
 	}
-	return 5
+	return 1
 }
 
-// GetScores retourne les scores actuels
 func (gm *GameManager) GetScores(roomID string) []PlayerScore {
 	room, err := gm.roomManager.GetRoom(roomID)
 	if err != nil {
@@ -408,7 +415,6 @@ func (gm *GameManager) GetScores(roomID string) []PlayerScore {
 		})
 	}
 
-	// Trier par score décroissant
 	for i := 0; i < len(scores)-1; i++ {
 		for j := i + 1; j < len(scores); j++ {
 			if scores[j].Score > scores[i].Score {
@@ -420,26 +426,22 @@ func (gm *GameManager) GetScores(roomID string) []PlayerScore {
 	return scores
 }
 
-// PlayerScore score d'un joueur
 type PlayerScore struct {
 	UserID int64  `json:"user_id"`
 	Pseudo string `json:"pseudo"`
 	Score  int    `json:"score"`
 }
 
-// EndGame termine la partie
 func (gm *GameManager) EndGame(roomID string) *GameResult {
 	state := gm.GetGameState(roomID)
 	if state == nil {
 		return nil
 	}
 
-	// Mettre à jour le statut de la salle
 	gm.roomManager.UpdateRoomStatus(roomID, models.RoomStatusFinished)
 
 	scores := gm.GetScores(roomID)
 
-	// Supprimer l'état du jeu
 	gm.mutex.Lock()
 	delete(gm.games, roomID)
 	gm.mutex.Unlock()
@@ -457,13 +459,11 @@ func (gm *GameManager) EndGame(roomID string) *GameResult {
 	}
 }
 
-// GameResult résultat final de la partie
 type GameResult struct {
 	Scores []PlayerScore `json:"scores"`
 	Winner string        `json:"winner"`
 }
 
-// IsGameOver vérifie si le jeu est terminé
 func (gm *GameManager) IsGameOver(roomID string) bool {
 	state := gm.GetGameState(roomID)
 	if state == nil {
@@ -474,7 +474,6 @@ func (gm *GameManager) IsGameOver(roomID string) bool {
 	return state.CurrentRound >= state.TotalRounds
 }
 
-// AllPlayersSubmitted vérifie si tous les joueurs ont soumis leurs réponses
 func (gm *GameManager) AllPlayersSubmitted(roomID string) bool {
 	state := gm.GetGameState(roomID)
 	if state == nil {
@@ -501,14 +500,39 @@ func (gm *GameManager) AllPlayersSubmitted(roomID string) bool {
 	return true
 }
 
-// ============================================================================
-// FONCTIONS UTILITAIRES
-// ============================================================================
+func (gm *GameManager) AnyPlayerFilledAll(roomID string) (bool, int64) {
+	state := gm.GetGameState(roomID)
+	if state == nil {
+		return false, 0
+	}
 
-// pickRandomLetter sélectionne une lettre aléatoire non utilisée
+	state.Mutex.RLock()
+	defer state.Mutex.RUnlock()
+
+	for userID, answers := range state.Answers {
+		if !state.HasSubmitted[userID] {
+			continue
+		}
+
+		allFilled := true
+		for _, cat := range state.Categories {
+			if answer, ok := answers[cat]; !ok || answer == "" {
+				allFilled = false
+				break
+			}
+		}
+
+		if allFilled {
+			return true, userID
+		}
+	}
+
+	return false, 0
+}
+
 func (gm *GameManager) pickRandomLetter(usedLetters []string) string {
 	available := make([]string, 0)
-	
+
 	for _, letter := range AvailableLetters {
 		used := false
 		for _, usedLetter := range usedLetters {
@@ -523,14 +547,12 @@ func (gm *GameManager) pickRandomLetter(usedLetters []string) string {
 	}
 
 	if len(available) == 0 {
-		// Toutes les lettres utilisées, on recommence
 		return AvailableLetters[rand.IntN(len(AvailableLetters))]
 	}
 
 	return available[rand.IntN(len(available))]
 }
 
-// GetAvailableCategories retourne les catégories disponibles
 func GetAvailableCategories() []string {
 	return models.DefaultPetitBacCategories
 }

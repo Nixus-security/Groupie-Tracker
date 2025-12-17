@@ -1,5 +1,3 @@
-// Package websocket - handler.go
-// Gère les connexions WebSocket et le routage des messages
 package websocket
 
 import (
@@ -21,19 +19,16 @@ var upgrader = websocket.Upgrader{
 	},
 }
 
-// BlindTestStarter interface pour démarrer une partie Blind Test
 type BlindTestStarter interface {
 	StartGame(roomCode string, genre string, rounds int) error
 	HandleMessage(client *Client, msg *models.WSMessage)
 }
 
-// PetitBacStarter interface pour démarrer une partie Petit Bac
 type PetitBacStarter interface {
 	StartGame(roomCode string, categories []string, rounds int) error
 	HandleMessage(client *Client, msg *models.WSMessage)
 }
 
-// Handler gère les connexions WebSocket
 type Handler struct {
 	hub         *Hub
 	roomManager *rooms.Manager
@@ -42,7 +37,6 @@ type Handler struct {
 	petitBacHandler  PetitBacStarter
 }
 
-// NewHandler crée un nouveau handler WebSocket
 func NewHandler() *Handler {
 	return &Handler{
 		hub:         GetHub(),
@@ -50,19 +44,16 @@ func NewHandler() *Handler {
 	}
 }
 
-// SetBlindTestHandler définit le handler Blind Test
 func (h *Handler) SetBlindTestHandler(handler BlindTestStarter) {
 	h.blindTestHandler = handler
 	log.Println("[WebSocket] ✅ Handler Blind Test configuré")
 }
 
-// SetPetitBacHandler définit le handler Petit Bac
 func (h *Handler) SetPetitBacHandler(handler PetitBacStarter) {
 	h.petitBacHandler = handler
 	log.Println("[WebSocket] ✅ Handler Petit Bac configuré")
 }
 
-// HandleWebSocket gère les nouvelles connexions WebSocket
 func (h *Handler) HandleWebSocket(w http.ResponseWriter, r *http.Request) {
 	user := auth.GetUserFromContext(r.Context())
 	if user == nil {
@@ -121,7 +112,6 @@ func (h *Handler) HandleWebSocket(w http.ResponseWriter, r *http.Request) {
 
 	log.Printf("[WebSocket] ✅ Client connecté: User %d (%s) dans salle %s", user.ID, user.Pseudo, room.Code)
 
-	// Notifier les autres joueurs - utilise WSTypePlayerJoined
 	h.hub.BroadcastExcept(room.Code, &models.WSMessage{
 		Type: models.WSTypePlayerJoined,
 		Payload: map[string]interface{}{
@@ -135,7 +125,6 @@ func (h *Handler) HandleWebSocket(w http.ResponseWriter, r *http.Request) {
 	client.Start()
 }
 
-// handleMessage traite les messages reçus des clients
 func (h *Handler) handleMessage(client *Client, msg *models.WSMessage) {
 	log.Printf("[WebSocket] 📨 Message: type=%s, user=%d (%s), room=%s",
 		msg.Type, client.UserID, client.Pseudo, client.RoomCode)
@@ -150,7 +139,6 @@ func (h *Handler) handleMessage(client *Client, msg *models.WSMessage) {
 	}
 
 	switch msg.Type {
-	// === Messages de salle ===
 	case models.WSTypePlayerReady:
 		h.handlePlayerReady(client, room, msg)
 
@@ -160,7 +148,6 @@ func (h *Handler) handleMessage(client *Client, msg *models.WSMessage) {
 	case models.WSTypeStartGame:
 		h.handleStartGame(client, room, msg)
 
-	// === Messages Blind Test ===
 	case models.WSTypeBTAnswer:
 		if h.blindTestHandler != nil {
 			h.blindTestHandler.HandleMessage(client, msg)
@@ -169,7 +156,6 @@ func (h *Handler) handleMessage(client *Client, msg *models.WSMessage) {
 			client.SendError("Handler Blind Test non configuré")
 		}
 
-	// === Messages Petit Bac ===
 	case models.WSTypePBSubmitAnswers, models.WSTypePBStopRound, models.WSTypePBSubmitVotes:
 		if h.petitBacHandler != nil {
 			h.petitBacHandler.HandleMessage(client, msg)
@@ -183,7 +169,6 @@ func (h *Handler) handleMessage(client *Client, msg *models.WSMessage) {
 	}
 }
 
-// handlePlayerReady gère le changement d'état "prêt"
 func (h *Handler) handlePlayerReady(client *Client, room *models.Room, msg *models.WSMessage) {
 	payload, ok := msg.Payload.(map[string]interface{})
 	if !ok {
@@ -201,7 +186,6 @@ func (h *Handler) handlePlayerReady(client *Client, room *models.Room, msg *mode
 
 	log.Printf("[WebSocket] 👤 Player %d (%s) ready=%v", client.UserID, client.Pseudo, ready)
 
-	// Notifier tous les joueurs - utilise WSTypePlayerReady
 	h.hub.Broadcast(room.Code, &models.WSMessage{
 		Type: models.WSTypePlayerReady,
 		Payload: map[string]interface{}{
@@ -212,7 +196,6 @@ func (h *Handler) handlePlayerReady(client *Client, room *models.Room, msg *mode
 	})
 
 	if models.IsRoomReady(room) {
-		// Salle prête - utilise WSTypeRoomUpdate
 		h.hub.Broadcast(room.Code, &models.WSMessage{
 			Type: models.WSTypeRoomUpdate,
 			Payload: map[string]interface{}{
@@ -222,7 +205,6 @@ func (h *Handler) handlePlayerReady(client *Client, room *models.Room, msg *mode
 	}
 }
 
-// handleLeaveRoom gère le départ d'un joueur
 func (h *Handler) handleLeaveRoom(client *Client, room *models.Room) {
 	err := h.roomManager.LeaveRoom(room.ID, client.UserID)
 	if err != nil {
@@ -232,7 +214,6 @@ func (h *Handler) handleLeaveRoom(client *Client, room *models.Room) {
 
 	log.Printf("[WebSocket] 👋 Player %d (%s) quitte la salle %s", client.UserID, client.Pseudo, room.Code)
 
-	// Notifier les autres - utilise WSTypePlayerLeft
 	h.hub.BroadcastExcept(room.Code, &models.WSMessage{
 		Type: models.WSTypePlayerLeft,
 		Payload: map[string]interface{}{
@@ -244,7 +225,6 @@ func (h *Handler) handleLeaveRoom(client *Client, room *models.Room) {
 	h.hub.Unregister(client)
 }
 
-// handleStartGame gère le démarrage d'une partie
 func (h *Handler) handleStartGame(client *Client, room *models.Room, msg *models.WSMessage) {
 	log.Printf("[WebSocket] 🎮 Demande start_game de %d (%s) pour salle %s", client.UserID, client.Pseudo, room.Code)
 
@@ -253,7 +233,6 @@ func (h *Handler) handleStartGame(client *Client, room *models.Room, msg *models
 		return
 	}
 
-	// Permettre le mode solo OU vérifier que tous sont prêts
 	room.Mutex.RLock()
 	playerCount := len(room.Players)
 	room.Mutex.RUnlock()
@@ -276,7 +255,6 @@ func (h *Handler) handleStartGame(client *Client, room *models.Room, msg *models
 		}
 		rounds := 10
 
-		// Extraire les paramètres du payload si présents
 		if payload, ok := msg.Payload.(map[string]interface{}); ok {
 			if g, ok := payload["genre"].(string); ok && g != "" {
 				genre = g
@@ -297,7 +275,6 @@ func (h *Handler) handleStartGame(client *Client, room *models.Room, msg *models
 
 		log.Printf("[WebSocket] ✅ BlindTest démarré: genre=%s, rounds=%d", genre, rounds)
 
-		// Notifier tous les joueurs - utilise WSTypeStartGame
 		h.hub.Broadcast(room.Code, &models.WSMessage{
 			Type: models.WSTypeStartGame,
 			Payload: map[string]interface{}{
@@ -338,7 +315,6 @@ func (h *Handler) handleStartGame(client *Client, room *models.Room, msg *models
 	}
 }
 
-// sendRoomState envoie l'état actuel de la salle à un client
 func (h *Handler) sendRoomState(client *Client, room *models.Room) {
 	room.Mutex.RLock()
 	defer room.Mutex.RUnlock()
@@ -355,7 +331,6 @@ func (h *Handler) sendRoomState(client *Client, room *models.Room) {
 		})
 	}
 
-	// Envoyer l'état - utilise WSTypeRoomUpdate
 	client.Send(&models.WSMessage{
 		Type: models.WSTypeRoomUpdate,
 		Payload: map[string]interface{}{
@@ -372,7 +347,6 @@ func (h *Handler) sendRoomState(client *Client, room *models.Room) {
 	})
 }
 
-// GetHub retourne le hub pour utilisation externe
 func (h *Handler) GetHub() *Hub {
 	return h.hub
 }

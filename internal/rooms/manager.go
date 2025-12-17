@@ -1,4 +1,3 @@
-// Package rooms gère les salles de jeu
 package rooms
 
 import (
@@ -25,20 +24,14 @@ var (
 )
 
 const (
-	// MaxPlayersPerRoom nombre maximum de joueurs par salle
-	MaxPlayersPerRoom = 10
-
-	// RoomCodeLength longueur du code de salle
-	RoomCodeLength = 6
-
-	// InactiveRoomTimeout durée avant suppression d'une salle inactive
+	MaxPlayersPerRoom   = 10
+	RoomCodeLength      = 6
 	InactiveRoomTimeout = 2 * time.Hour
 )
 
-// Manager gère toutes les salles actives en mémoire
 type Manager struct {
-	rooms map[string]*models.Room // Clé = ID de la salle
-	codes map[string]string       // Clé = code, Valeur = ID
+	rooms map[string]*models.Room
+	codes map[string]string
 	mutex sync.RWMutex
 	db    *sql.DB
 }
@@ -48,7 +41,6 @@ var (
 	managerOnce     sync.Once
 )
 
-// GetManager retourne l'instance singleton du manager de salles
 func GetManager() *Manager {
 	managerOnce.Do(func() {
 		managerInstance = &Manager{
@@ -56,16 +48,12 @@ func GetManager() *Manager {
 			codes: make(map[string]string),
 			db:    database.GetDB(),
 		}
-		// Démarrer le nettoyage périodique des salles inactives
 		go managerInstance.cleanupInactiveRooms()
 	})
 	return managerInstance
 }
 
-// CreateRoom crée une nouvelle salle de jeu
-// roomName est le nom personnalisé de la salle (PAS le pseudo du joueur)
 func (m *Manager) CreateRoom(roomName string, hostID int64, hostPseudo string, gameType models.GameType) (*models.Room, error) {
-	// Valider le nom de la salle
 	roomName = strings.TrimSpace(roomName)
 	if len(roomName) < 3 || len(roomName) > 50 {
 		return nil, ErrInvalidRoomName
@@ -74,19 +62,16 @@ func (m *Manager) CreateRoom(roomName string, hostID int64, hostPseudo string, g
 	m.mutex.Lock()
 	defer m.mutex.Unlock()
 
-	// Générer un ID unique
 	roomID, err := generateRoomID()
 	if err != nil {
 		return nil, err
 	}
 
-	// Générer un code unique pour rejoindre
 	code, err := m.generateUniqueCode()
 	if err != nil {
 		return nil, err
 	}
 
-	// Configuration par défaut selon le type de jeu
 	config := models.GameConfig{}
 	switch gameType {
 	case models.GameTypeBlindTest:
@@ -101,7 +86,7 @@ func (m *Manager) CreateRoom(roomName string, hostID int64, hostPseudo string, g
 	room := &models.Room{
 		ID:       roomID,
 		Code:     code,
-		Name:     roomName, // Utilise le nom personnalisé, PAS le pseudo
+		Name:     roomName,
 		HostID:   hostID,
 		GameType: gameType,
 		Status:   models.RoomStatusWaiting,
@@ -119,11 +104,9 @@ func (m *Manager) CreateRoom(roomName string, hostID int64, hostPseudo string, g
 		CreatedAt: time.Now(),
 	}
 
-	// Sauvegarder en mémoire
 	m.rooms[roomID] = room
 	m.codes[code] = roomID
 
-	// Sauvegarder en base de données
 	if m.db != nil {
 		_, err = m.db.Exec(`
 			INSERT INTO rooms (id, code, name, host_id, game_type, status, created_at) 
@@ -132,7 +115,6 @@ func (m *Manager) CreateRoom(roomName string, hostID int64, hostPseudo string, g
 		)
 		if err != nil {
 			log.Printf("[Rooms] Erreur sauvegarde DB: %v", err)
-			// On continue quand même, la salle est en mémoire
 		}
 	}
 
@@ -140,7 +122,6 @@ func (m *Manager) CreateRoom(roomName string, hostID int64, hostPseudo string, g
 	return room, nil
 }
 
-// GetRoom récupère une salle par son ID
 func (m *Manager) GetRoom(roomID string) (*models.Room, error) {
 	m.mutex.RLock()
 	defer m.mutex.RUnlock()
@@ -152,7 +133,6 @@ func (m *Manager) GetRoom(roomID string) (*models.Room, error) {
 	return room, nil
 }
 
-// GetRoomByCode récupère une salle par son code
 func (m *Manager) GetRoomByCode(code string) (*models.Room, error) {
 	m.mutex.RLock()
 	roomID, exists := m.codes[strings.ToUpper(code)]
@@ -164,7 +144,6 @@ func (m *Manager) GetRoomByCode(code string) (*models.Room, error) {
 	return m.GetRoom(roomID)
 }
 
-// JoinRoom fait rejoindre un joueur à une salle
 func (m *Manager) JoinRoom(roomID string, userID int64, pseudo string) (*models.Room, error) {
 	room, err := m.GetRoom(roomID)
 	if err != nil {
@@ -174,24 +153,19 @@ func (m *Manager) JoinRoom(roomID string, userID int64, pseudo string) (*models.
 	room.Mutex.Lock()
 	defer room.Mutex.Unlock()
 
-	// Vérifier si la partie n'est pas déjà en cours
 	if room.Status == models.RoomStatusPlaying {
 		return nil, ErrGameInProgress
 	}
 
-	// Vérifier si le joueur est déjà dans la salle
 	if _, exists := room.Players[userID]; exists {
-		// Reconnecter le joueur
 		room.Players[userID].Connected = true
 		return room, nil
 	}
 
-	// Vérifier si la salle est pleine
 	if len(room.Players) >= MaxPlayersPerRoom {
 		return nil, ErrRoomFull
 	}
 
-	// Ajouter le joueur
 	room.Players[userID] = &models.Player{
 		UserID:    userID,
 		Pseudo:    pseudo,
@@ -205,7 +179,6 @@ func (m *Manager) JoinRoom(roomID string, userID int64, pseudo string) (*models.
 	return room, nil
 }
 
-// LeaveRoom fait quitter un joueur d'une salle
 func (m *Manager) LeaveRoom(roomID string, userID int64) error {
 	room, err := m.GetRoom(roomID)
 	if err != nil {
@@ -226,13 +199,11 @@ func (m *Manager) LeaveRoom(roomID string, userID int64) error {
 	delete(room.Players, userID)
 	log.Printf("[Rooms] %s a quitté la salle %s", pseudo, room.Name)
 
-	// Si plus de joueurs, supprimer la salle
 	if len(room.Players) == 0 {
 		room.Mutex.Unlock()
 		return m.DeleteRoom(roomID)
 	}
 
-	// Si l'hôte part, transférer à un autre joueur
 	if wasHost {
 		for id, p := range room.Players {
 			p.IsHost = true
@@ -246,7 +217,6 @@ func (m *Manager) LeaveRoom(roomID string, userID int64) error {
 	return nil
 }
 
-// SetPlayerReady définit l'état "prêt" d'un joueur
 func (m *Manager) SetPlayerReady(roomID string, userID int64, ready bool) error {
 	room, err := m.GetRoom(roomID)
 	if err != nil {
@@ -265,7 +235,6 @@ func (m *Manager) SetPlayerReady(roomID string, userID int64, ready bool) error 
 	return nil
 }
 
-// UpdateRoomStatus met à jour le statut d'une salle
 func (m *Manager) UpdateRoomStatus(roomID string, status models.RoomStatus) error {
 	room, err := m.GetRoom(roomID)
 	if err != nil {
@@ -276,7 +245,6 @@ func (m *Manager) UpdateRoomStatus(roomID string, status models.RoomStatus) erro
 	room.Status = status
 	room.Mutex.Unlock()
 
-	// Mettre à jour en base
 	if m.db != nil {
 		_, err = m.db.Exec("UPDATE rooms SET status = ? WHERE id = ?", string(status), roomID)
 		if err != nil {
@@ -289,7 +257,6 @@ func (m *Manager) UpdateRoomStatus(roomID string, status models.RoomStatus) erro
 	return nil
 }
 
-// GetAllRooms retourne toutes les salles actives
 func (m *Manager) GetAllRooms() []*models.Room {
 	m.mutex.RLock()
 	defer m.mutex.RUnlock()
@@ -301,7 +268,6 @@ func (m *Manager) GetAllRooms() []*models.Room {
 	return rooms
 }
 
-// GetRoomsByStatus retourne les salles avec un statut particulier
 func (m *Manager) GetRoomsByStatus(status models.RoomStatus) []*models.Room {
 	m.mutex.RLock()
 	defer m.mutex.RUnlock()
@@ -315,7 +281,6 @@ func (m *Manager) GetRoomsByStatus(status models.RoomStatus) []*models.Room {
 	return rooms
 }
 
-// DeleteRoom supprime une salle
 func (m *Manager) DeleteRoom(roomID string) error {
 	m.mutex.Lock()
 	defer m.mutex.Unlock()
@@ -328,7 +293,6 @@ func (m *Manager) DeleteRoom(roomID string) error {
 	delete(m.codes, room.Code)
 	delete(m.rooms, roomID)
 
-	// Supprimer de la base
 	if m.db != nil {
 		_, err := m.db.Exec("DELETE FROM rooms WHERE id = ?", roomID)
 		if err != nil {
@@ -340,7 +304,6 @@ func (m *Manager) DeleteRoom(roomID string) error {
 	return nil
 }
 
-// ResetPlayerScores remet les scores des joueurs à zéro
 func (m *Manager) ResetPlayerScores(roomID string) error {
 	room, err := m.GetRoom(roomID)
 	if err != nil {
@@ -357,7 +320,6 @@ func (m *Manager) ResetPlayerScores(roomID string) error {
 	return nil
 }
 
-// AddPlayerScore ajoute des points au score d'un joueur
 func (m *Manager) AddPlayerScore(roomID string, userID int64, points int) error {
 	room, err := m.GetRoom(roomID)
 	if err != nil {
@@ -376,7 +338,6 @@ func (m *Manager) AddPlayerScore(roomID string, userID int64, points int) error 
 	return nil
 }
 
-// GetPlayer récupère un joueur dans une salle
 func (m *Manager) GetPlayer(roomID string, userID int64) (*models.Player, error) {
 	room, err := m.GetRoom(roomID)
 	if err != nil {
@@ -394,7 +355,6 @@ func (m *Manager) GetPlayer(roomID string, userID int64) (*models.Player, error)
 	return player, nil
 }
 
-// IsHost vérifie si un utilisateur est l'hôte d'une salle
 func (m *Manager) IsHost(roomID string, userID int64) bool {
 	room, err := m.GetRoom(roomID)
 	if err != nil {
@@ -407,11 +367,6 @@ func (m *Manager) IsHost(roomID string, userID int64) bool {
 	return room.HostID == userID
 }
 
-// ============================================================================
-// FONCTIONS UTILITAIRES
-// ============================================================================
-
-// generateRoomID génère un ID de salle unique
 func generateRoomID() (string, error) {
 	bytes := make([]byte, 16)
 	if _, err := rand.Read(bytes); err != nil {
@@ -420,9 +375,8 @@ func generateRoomID() (string, error) {
 	return hex.EncodeToString(bytes), nil
 }
 
-// generateUniqueCode génère un code unique pour rejoindre une salle
 func (m *Manager) generateUniqueCode() (string, error) {
-	const charset = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789" // Sans I, O, 0, 1 pour éviter confusion
+	const charset = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789"
 
 	for attempts := 0; attempts < 10; attempts++ {
 		bytes := make([]byte, RoomCodeLength)
@@ -444,7 +398,6 @@ func (m *Manager) generateUniqueCode() (string, error) {
 	return "", errors.New("impossible de générer un code unique")
 }
 
-// cleanupInactiveRooms nettoie périodiquement les salles inactives
 func (m *Manager) cleanupInactiveRooms() {
 	ticker := time.NewTicker(30 * time.Minute)
 	defer ticker.Stop()
@@ -455,8 +408,6 @@ func (m *Manager) cleanupInactiveRooms() {
 		toDelete := []string{}
 
 		for id, room := range m.rooms {
-			// Supprimer les salles terminées depuis plus de 30 minutes
-			// ou les salles en attente depuis plus de 2 heures
 			if room.Status == models.RoomStatusFinished {
 				toDelete = append(toDelete, id)
 			} else if room.Status == models.RoomStatusWaiting && now.Sub(room.CreatedAt) > InactiveRoomTimeout {
@@ -479,28 +430,18 @@ func (m *Manager) cleanupInactiveRooms() {
 	}
 }
 
-// ============================================================================
-// MÉTHODES DE JEU
-// ============================================================================
-
-// StartGame démarre une partie dans une salle (met à jour le statut)
 func (m *Manager) StartGame(roomID string) error {
 	return m.UpdateRoomStatus(roomID, models.RoomStatusPlaying)
 }
 
-// EndGame termine une partie dans une salle (met à jour le statut)
 func (m *Manager) EndGame(roomID string) error {
 	return m.UpdateRoomStatus(roomID, models.RoomStatusFinished)
 }
 
-// CreateRoomLegacy crée une salle avec l'ancienne signature (compatibilité)
-// Le nom de la salle sera le pseudo du joueur par défaut
 func (m *Manager) CreateRoomLegacy(hostID int64, hostPseudo string, gameType models.GameType) (*models.Room, error) {
-	// Utilise le pseudo comme nom de salle par défaut
 	return m.CreateRoom(hostPseudo+"'s Room", hostID, hostPseudo, gameType)
 }
 
-// CreateRoomWithName est un alias explicite pour CreateRoom
 func (m *Manager) CreateRoomWithName(roomName string, hostID int64, hostPseudo string, gameType models.GameType) (*models.Room, error) {
 	return m.CreateRoom(roomName, hostID, hostPseudo, gameType)
 }

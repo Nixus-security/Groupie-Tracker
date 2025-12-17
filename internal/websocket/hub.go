@@ -1,4 +1,3 @@
-// Package websocket gère les connexions WebSocket temps réel
 package websocket
 
 import (
@@ -9,38 +8,27 @@ import (
 	"groupie-tracker/internal/models"
 )
 
-// Hub gère toutes les connexions WebSocket
 type Hub struct {
-	// Clients connectés par salle: roomCode -> userID -> Client
 	rooms map[string]map[int64]*Client
 
-	// Canal pour enregistrer un nouveau client
-	register chan *Client
-
-	// Canal pour désenregistrer un client
+	register   chan *Client
 	unregister chan *Client
+	broadcast  chan *BroadcastMessage
 
-	// Canal pour diffuser un message à une salle
-	broadcast chan *BroadcastMessage
-
-	// Mutex pour l'accès concurrent
 	mutex sync.RWMutex
 }
 
-// BroadcastMessage message à diffuser
 type BroadcastMessage struct {
 	RoomCode string
 	Message  *models.WSMessage
-	Exclude  int64 // UserID à exclure (0 = aucun)
+	Exclude  int64
 }
 
-// hubInstance singleton du hub
 var (
 	hubInstance *Hub
 	hubOnce     sync.Once
 )
 
-// GetHub retourne l'instance singleton du hub
 func GetHub() *Hub {
 	hubOnce.Do(func() {
 		hubInstance = &Hub{
@@ -55,7 +43,6 @@ func GetHub() *Hub {
 	return hubInstance
 }
 
-// run démarre la boucle principale du hub
 func (h *Hub) run() {
 	for {
 		select {
@@ -71,17 +58,14 @@ func (h *Hub) run() {
 	}
 }
 
-// registerClient enregistre un nouveau client
 func (h *Hub) registerClient(client *Client) {
 	h.mutex.Lock()
 	defer h.mutex.Unlock()
 
-	// Créer la salle si elle n'existe pas
 	if _, exists := h.rooms[client.RoomCode]; !exists {
 		h.rooms[client.RoomCode] = make(map[int64]*Client)
 	}
 
-	// Fermer l'ancienne connexion si elle existe
 	if oldClient, exists := h.rooms[client.RoomCode][client.UserID]; exists {
 		log.Printf("[Hub] ⚠️ Remplacement connexion existante pour User %d", client.UserID)
 		oldClient.Close()
@@ -92,7 +76,6 @@ func (h *Hub) registerClient(client *Client) {
 		client.UserID, client.Pseudo, client.RoomCode, len(h.rooms[client.RoomCode]))
 }
 
-// unregisterClient désenregistre un client
 func (h *Hub) unregisterClient(client *Client) {
 	h.mutex.Lock()
 	defer h.mutex.Unlock()
@@ -104,7 +87,6 @@ func (h *Hub) unregisterClient(client *Client) {
 			log.Printf("[Hub] 🔌 Client déconnecté: User %d (%s) de salle %s (restant: %d)",
 				client.UserID, client.Pseudo, client.RoomCode, len(room))
 
-			// Supprimer la salle si vide
 			if len(room) == 0 {
 				delete(h.rooms, client.RoomCode)
 				log.Printf("[Hub] 🗑️ Salle %s supprimée (vide)", client.RoomCode)
@@ -113,7 +95,6 @@ func (h *Hub) unregisterClient(client *Client) {
 	}
 }
 
-// broadcastToRoom diffuse un message à tous les clients d'une salle
 func (h *Hub) broadcastToRoom(msg *BroadcastMessage) {
 	h.mutex.RLock()
 	defer h.mutex.RUnlock()
@@ -130,7 +111,6 @@ func (h *Hub) broadcastToRoom(msg *BroadcastMessage) {
 		return
 	}
 
-	// Log du broadcast
 	recipientCount := len(room)
 	if msg.Exclude != 0 {
 		recipientCount--
@@ -139,37 +119,27 @@ func (h *Hub) broadcastToRoom(msg *BroadcastMessage) {
 		msg.Message.Type, msg.RoomCode, recipientCount, msg.Exclude)
 
 	for userID, client := range room {
-		// Exclure l'utilisateur spécifié si nécessaire
 		if msg.Exclude != 0 && userID == msg.Exclude {
 			continue
 		}
 
 		select {
 		case client.send <- data:
-			// Message envoyé
 		default:
-			// Buffer plein, fermer le client
 			log.Printf("[Hub] ⚠️ Buffer plein pour User %d, déconnexion", userID)
 			h.unregister <- client
 		}
 	}
 }
 
-// ============================================================================
-// MÉTHODES PUBLIQUES
-// ============================================================================
-
-// Register enregistre un client
 func (h *Hub) Register(client *Client) {
 	h.register <- client
 }
 
-// Unregister désenregistre un client
 func (h *Hub) Unregister(client *Client) {
 	h.unregister <- client
 }
 
-// Broadcast diffuse un message à une salle
 func (h *Hub) Broadcast(roomCode string, msg *models.WSMessage) {
 	h.broadcast <- &BroadcastMessage{
 		RoomCode: roomCode,
@@ -178,7 +148,6 @@ func (h *Hub) Broadcast(roomCode string, msg *models.WSMessage) {
 	}
 }
 
-// BroadcastExcept diffuse un message à une salle sauf à un utilisateur
 func (h *Hub) BroadcastExcept(roomCode string, msg *models.WSMessage, excludeUserID int64) {
 	h.broadcast <- &BroadcastMessage{
 		RoomCode: roomCode,
@@ -187,7 +156,6 @@ func (h *Hub) BroadcastExcept(roomCode string, msg *models.WSMessage, excludeUse
 	}
 }
 
-// SendToUser envoie un message à un utilisateur spécifique
 func (h *Hub) SendToUser(roomCode string, userID int64, msg *models.WSMessage) {
 	h.mutex.RLock()
 	defer h.mutex.RUnlock()
@@ -214,13 +182,11 @@ func (h *Hub) SendToUser(roomCode string, userID int64, msg *models.WSMessage) {
 
 	select {
 	case client.send <- data:
-		// OK
 	default:
 		log.Printf("[Hub] ⚠️ Buffer plein pour User %d", userID)
 	}
 }
 
-// GetRoomClients retourne le nombre de clients dans une salle
 func (h *Hub) GetRoomClients(roomCode string) int {
 	h.mutex.RLock()
 	defer h.mutex.RUnlock()
@@ -231,7 +197,6 @@ func (h *Hub) GetRoomClients(roomCode string) int {
 	return 0
 }
 
-// GetConnectedUsers retourne les IDs des utilisateurs connectés dans une salle
 func (h *Hub) GetConnectedUsers(roomCode string) []int64 {
 	h.mutex.RLock()
 	defer h.mutex.RUnlock()
@@ -248,7 +213,6 @@ func (h *Hub) GetConnectedUsers(roomCode string) []int64 {
 	return users
 }
 
-// IsUserConnected vérifie si un utilisateur est connecté dans une salle
 func (h *Hub) IsUserConnected(roomCode string, userID int64) bool {
 	h.mutex.RLock()
 	defer h.mutex.RUnlock()

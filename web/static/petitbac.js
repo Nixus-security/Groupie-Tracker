@@ -1,9 +1,3 @@
-/**
- * ============================================================================
- * GROUPIE-TRACKER - Petit Bac Musical Game
- * ============================================================================
- */
-
 class PetitBacGame {
     constructor() {
         this.currentRound = 0;
@@ -21,18 +15,12 @@ class PetitBacGame {
         this.init();
     }
 
-    /**
-     * Initialise le jeu
-     */
     init() {
         this.setupElements();
         this.setupEventListeners();
         this.setupWebSocketHandlers();
     }
 
-    /**
-     * Configure les éléments DOM
-     */
     setupElements() {
         this.elements = {
             roundNumber: document.getElementById('round-number'),
@@ -47,21 +35,15 @@ class PetitBacGame {
         };
     }
 
-    /**
-     * Configure les listeners d'événements
-     */
     setupEventListeners() {
-        // Soumission des réponses
         if (this.elements.submitBtn) {
             this.elements.submitBtn.addEventListener('click', () => this.submitAnswers());
         }
 
-        // Bouton Stop
         if (this.elements.stopBtn) {
             this.elements.stopBtn.addEventListener('click', () => this.stopRound());
         }
 
-        // Navigation avec Tab entre les champs
         if (this.elements.categoriesForm) {
             this.elements.categoriesForm.addEventListener('keydown', (e) => {
                 if (e.key === 'Enter') {
@@ -72,50 +54,36 @@ class PetitBacGame {
         }
     }
 
-    /**
-     * Configure les handlers WebSocket
-     */
     setupWebSocketHandlers() {
-        // Nouvelle manche
         wsManager.on('pb_new_round', (data) => {
             this.handleNewRound(data);
         });
 
-        // Réponse d'un joueur
         wsManager.on('pb_answer', (data) => {
             this.handlePlayerAnswer(data);
         });
 
-        // Phase de vote
         wsManager.on('pb_vote', (data) => {
             this.handleVote(data);
         });
 
-        // Résultats des votes
         wsManager.on('pb_vote_result', (data) => {
             this.handleVoteResults(data);
         });
 
-        // Stop de manche
         wsManager.on('pb_stop_round', (data) => {
             this.handleStopRound(data);
         });
 
-        // Fin de partie
         wsManager.on('pb_game_end', (data) => {
             this.handleGameEnd(data);
         });
 
-        // Mise à jour des scores
         wsManager.on('pb_scores', (data) => {
             this.updateScores(data);
         });
     }
 
-    /**
-     * Gère le début d'une nouvelle manche
-     * @param {Object} data - Données de la manche
-     */
     handleNewRound(data) {
         console.log('🎼 Nouvelle manche:', data);
 
@@ -129,21 +97,16 @@ class PetitBacGame {
         this.isVoting = false;
         this.votes = {};
 
-        // Mettre à jour l'UI
         this.updateRoundInfo();
         this.renderCategoriesForm();
         this.hideVotingSection();
         this.enableForm();
 
-        // Animation de la lettre
         this.animateLetter();
 
         showToast(`Manche ${this.currentRound}/${this.totalRounds} - Lettre ${this.currentLetter}`, 'info');
     }
 
-    /**
-     * Met à jour les informations de manche
-     */
     updateRoundInfo() {
         if (this.elements.roundNumber) {
             this.elements.roundNumber.textContent = `Manche ${this.currentRound}/${this.totalRounds}`;
@@ -153,9 +116,6 @@ class PetitBacGame {
         }
     }
 
-    /**
-     * Génère le formulaire des catégories
-     */
     renderCategoriesForm() {
         if (!this.elements.categoriesForm) return;
 
@@ -180,19 +140,14 @@ class PetitBacGame {
 
         this.elements.categoriesForm.innerHTML = html;
 
-        // Ajouter la validation en temps réel
         this.setupInputValidation();
 
-        // Focus sur le premier champ
         const firstInput = this.elements.categoriesForm.querySelector('input');
         if (firstInput) {
             setTimeout(() => firstInput.focus(), 100);
         }
     }
 
-    /**
-     * Configure la validation des inputs
-     */
     setupInputValidation() {
         const inputs = this.elements.categoriesForm?.querySelectorAll('input');
         
@@ -203,10 +158,6 @@ class PetitBacGame {
         });
     }
 
-    /**
-     * Valide un champ de saisie
-     * @param {HTMLInputElement} input - Champ à valider
-     */
     validateInput(input) {
         const value = input.value.trim().toUpperCase();
         const container = input.closest('.category-input');
@@ -229,10 +180,6 @@ class PetitBacGame {
         }
     }
 
-    /**
-     * Passe au champ suivant
-     * @param {HTMLElement} currentInput - Champ actuel
-     */
     focusNextInput(currentInput) {
         const inputs = Array.from(this.elements.categoriesForm?.querySelectorAll('input') || []);
         const currentIndex = inputs.indexOf(currentInput);
@@ -240,22 +187,17 @@ class PetitBacGame {
         if (currentIndex < inputs.length - 1) {
             inputs[currentIndex + 1].focus();
         } else {
-            // Dernier champ, soumettre si possible
             if (!this.hasSubmitted) {
                 this.submitAnswers();
             }
         }
     }
 
-    /**
-     * Soumet les réponses
-     */
     submitAnswers() {
         if (this.hasSubmitted || !this.isPlaying) {
             return;
         }
 
-        // Collecter les réponses
         const inputs = this.elements.categoriesForm?.querySelectorAll('input');
         const answers = {};
 
@@ -268,13 +210,10 @@ class PetitBacGame {
         this.answers = answers;
         this.hasSubmitted = true;
 
-        // Envoyer via WebSocket
         wsManager.submitPetitBacAnswers(answers);
 
-        // Désactiver le formulaire
         this.disableForm();
 
-        // Activer le bouton Stop
         if (this.elements.stopBtn) {
             this.elements.stopBtn.disabled = false;
         }
@@ -282,9 +221,6 @@ class PetitBacGame {
         showToast('Réponses soumises !', 'success');
     }
 
-    /**
-     * Stoppe la manche (bouton Stop)
-     */
     stopRound() {
         if (!this.hasSubmitted) {
             showToast('Soumettez d\'abord vos réponses', 'warning');
@@ -300,9 +236,6 @@ class PetitBacGame {
         showToast('STOP ! ⏱️', 'warning');
     }
 
-    /**
-     * Active le formulaire
-     */
     enableForm() {
         const inputs = this.elements.categoriesForm?.querySelectorAll('input');
         inputs?.forEach(input => input.disabled = false);
@@ -320,9 +253,6 @@ class PetitBacGame {
         }
     }
 
-    /**
-     * Désactive le formulaire
-     */
     disableForm() {
         const inputs = this.elements.categoriesForm?.querySelectorAll('input');
         inputs?.forEach(input => input.disabled = true);
@@ -332,32 +262,19 @@ class PetitBacGame {
         }
     }
 
-    /**
-     * Gère la réponse d'un joueur
-     * @param {Object} data - Données de la réponse
-     */
     handlePlayerAnswer(data) {
         showToast(`${data.pseudo} a soumis ses réponses`, 'info');
     }
 
-    /**
-     * Gère le stop de manche
-     * @param {Object} data - Données du stop
-     */
     handleStopRound(data) {
         showToast(`${data.pseudo} a dit STOP !`, 'warning', 3000);
         
-        // Effet visuel
         document.body.classList.add('flash-warning');
         setTimeout(() => {
             document.body.classList.remove('flash-warning');
         }, 500);
     }
 
-    /**
-     * Gère la phase de vote
-     * @param {Object} data - Données de vote
-     */
     handleVote(data) {
         console.log('🗳️ Vote:', data);
 
@@ -367,21 +284,15 @@ class PetitBacGame {
             this.renderVotingSection(data.answers);
             showToast('Phase de vote !', 'info');
         } else if (data.phase === 'vote') {
-            // Un joueur a voté
             this.updateVoteStatus(data);
         }
     }
 
-    /**
-     * Affiche la section de vote
-     * @param {Object} answersToVote - Réponses à voter
-     */
     renderVotingSection(answersToVote) {
         if (!this.elements.votingSection) return;
 
         let html = '<h3>🗳️ Votez pour valider les réponses</h3>';
 
-        // Pour chaque catégorie
         for (const category in answersToVote) {
             const categoryAnswers = answersToVote[category];
             
@@ -393,7 +304,6 @@ class PetitBacGame {
             `;
 
             categoryAnswers.forEach(answer => {
-                // Ne pas pouvoir voter pour soi-même
                 const isSelf = answer.user_id === wsManager.userId;
                 
                 html += `
@@ -422,7 +332,6 @@ class PetitBacGame {
         this.elements.votingSection.innerHTML = html;
         this.elements.votingSection.style.display = 'block';
         
-        // Cacher le formulaire de réponses
         if (this.elements.categoriesForm) {
             this.elements.categoriesForm.style.display = 'none';
         }
@@ -433,9 +342,6 @@ class PetitBacGame {
         animateElement(this.elements.votingSection, 'animate-slide-up');
     }
 
-    /**
-     * Cache la section de vote
-     */
     hideVotingSection() {
         if (this.elements.votingSection) {
             this.elements.votingSection.style.display = 'none';
@@ -445,16 +351,9 @@ class PetitBacGame {
         }
     }
 
-    /**
-     * Envoie un vote
-     * @param {number} targetUserId - ID du joueur cible
-     * @param {string} category - Catégorie
-     * @param {boolean} isValid - Validité
-     */
     vote(targetUserId, category, isValid) {
         const key = `${category}-${targetUserId}`;
         
-        // Vérifier si déjà voté
         if (this.votes[key] !== undefined) {
             showToast('Vous avez déjà voté pour cette réponse', 'warning');
             return;
@@ -462,10 +361,8 @@ class PetitBacGame {
 
         this.votes[key] = isValid;
 
-        // Envoyer via WebSocket
         wsManager.submitPetitBacVote(targetUserId, category, isValid);
 
-        // Mettre à jour l'UI
         const voteItem = document.querySelector(
             `.vote-item[data-user-id="${targetUserId}"][data-category="${category}"]`
         );
@@ -486,37 +383,22 @@ class PetitBacGame {
         showToast(`Vote enregistré : ${isValid ? '✓ Valide' : '✕ Invalide'}`, 'success');
     }
 
-    /**
-     * Met à jour le statut d'un vote
-     * @param {Object} data - Données du vote
-     */
     updateVoteStatus(data) {
-        // Optionnel: afficher qui a voté
         console.log(`${data.voter_id} a voté pour ${data.target_id} (${data.category})`);
     }
 
-    /**
-     * Gère les résultats des votes
-     * @param {Object} data - Résultats
-     */
     handleVoteResults(data) {
         console.log('📊 Résultats votes:', data);
 
         this.isVoting = false;
 
-        // Afficher les résultats
         this.showVoteResults(data.results);
 
-        // Mettre à jour les scores
         if (data.scores) {
             this.updateScores(data.scores);
         }
     }
 
-    /**
-     * Affiche les résultats des votes
-     * @param {Object} results - Résultats par catégorie
-     */
     showVoteResults(results) {
         if (!this.elements.votingSection) return;
 
@@ -557,18 +439,11 @@ class PetitBacGame {
         animateElement(this.elements.votingSection, 'animate-fade-in');
     }
 
-    /**
-     * Met à jour les scores
-     * @param {Object} scores - Scores des joueurs
-     */
     updateScores(scores) {
         this.scores = scores;
         this.renderScoreboard();
     }
 
-    /**
-     * Affiche le tableau des scores
-     */
     renderScoreboard() {
         if (!this.elements.playersScores) return;
 
@@ -598,10 +473,6 @@ class PetitBacGame {
         this.elements.playersScores.innerHTML = html;
     }
 
-    /**
-     * Gère la fin de partie
-     * @param {Object} data - Données de fin de partie
-     */
     handleGameEnd(data) {
         console.log('🏆 Fin de partie:', data);
 
@@ -613,10 +484,6 @@ class PetitBacGame {
         this.showGameEndScreen(data);
     }
 
-    /**
-     * Affiche l'écran de fin de partie
-     * @param {Object} data - Données finales
-     */
     showGameEndScreen(data) {
         if (!this.elements.gameContainer) return;
 
@@ -656,11 +523,6 @@ class PetitBacGame {
         this.elements.gameContainer.innerHTML = html;
     }
 
-    /**
-     * Formate le nom d'une catégorie
-     * @param {string} category - Nom de catégorie
-     * @returns {string} Nom formaté
-     */
     formatCategoryName(category) {
         const icons = {
             'artiste': '🎤 Artiste',
@@ -674,9 +536,6 @@ class PetitBacGame {
                category.charAt(0).toUpperCase() + category.slice(1);
     }
 
-    /**
-     * Animation de la lettre
-     */
     animateLetter() {
         if (this.elements.currentLetter) {
             this.elements.currentLetter.style.animation = 'none';
@@ -688,16 +547,9 @@ class PetitBacGame {
     }
 }
 
-// ============================================================================
-// INITIALISATION
-// ============================================================================
 
 let petitBacGame;
 
-/**
- * Initialise le jeu Petit Bac
- * @param {Object} config - Configuration du jeu
- */
 function initPetitBac(config = {}) {
     console.log('🎼 Initialisation Petit Bac:', config);
     petitBacGame = new PetitBacGame();
@@ -710,7 +562,6 @@ function initPetitBac(config = {}) {
     }
 }
 
-// Auto-initialisation
 document.addEventListener('DOMContentLoaded', () => {
     const gameContainer = document.getElementById('game-container');
     const isPetitBacPage = gameContainer && document.querySelector('#current-letter');
@@ -720,7 +571,6 @@ document.addEventListener('DOMContentLoaded', () => {
     }
 });
 
-// Export
 window.PetitBacGame = PetitBacGame;
 window.initPetitBac = initPetitBac;
 window.petitBacGame = null; // Sera initialisé

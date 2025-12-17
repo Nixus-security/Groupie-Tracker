@@ -1,4 +1,3 @@
-// Package rooms - Gestionnaire des salles de jeu
 package rooms
 
 import (
@@ -7,52 +6,44 @@ import (
 	"log"
 	"net/http"
 	"path/filepath"
+	"strconv"
 	"strings"
 
 	"groupie-tracker/internal/auth"
 	"groupie-tracker/internal/models"
 )
 
-// Handler gère les requêtes HTTP liées aux salles
 type Handler struct {
 	templateDir string
 }
 
-// NewHandler crée un nouveau gestionnaire de salles
 func NewHandler(templateDir string) *Handler {
 	return &Handler{
 		templateDir: templateDir,
 	}
 }
 
-// HandleLobby affiche le lobby avec la liste des salles
 func (h *Handler) HandleLobby(w http.ResponseWriter, r *http.Request) {
-	// Vérifier l'authentification
 	sessionManager := auth.NewSessionManager()
 	user, err := sessionManager.GetUserFromRequest(r)
 	if err != nil {
-		// Rediriger vers la page de connexion si non authentifié
 		http.Redirect(w, r, "/login?redirect="+r.URL.Path, http.StatusSeeOther)
 		return
 	}
 
-	// Récupérer toutes les salles
 	manager := GetManager()
 	rooms := manager.GetAllRooms()
 
-	// Préparer les données pour le template
 	data := map[string]interface{}{
 		"Title": "Salles de jeu",
 		"User":  user,
 		"Rooms": rooms,
 	}
 
-	// Charger et exécuter le template
 	tmplPath := filepath.Join(h.templateDir, "rooms.html")
 	tmpl, err := template.ParseFiles(tmplPath)
 	if err != nil {
 		log.Printf("[ROOMS] Erreur chargement template rooms.html: %v", err)
-		// Fallback: servir le fichier HTML directement
 		http.ServeFile(w, r, tmplPath)
 		return
 	}
@@ -65,9 +56,7 @@ func (h *Handler) HandleLobby(w http.ResponseWriter, r *http.Request) {
 	}
 }
 
-// HandleRoom affiche une salle spécifique
 func (h *Handler) HandleRoom(w http.ResponseWriter, r *http.Request) {
-	// Vérifier l'authentification
 	sessionManager := auth.NewSessionManager()
 	user, err := sessionManager.GetUserFromRequest(r)
 	if err != nil {
@@ -75,18 +64,15 @@ func (h *Handler) HandleRoom(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Extraire le code de la salle depuis l'URL
 	code := strings.TrimPrefix(r.URL.Path, "/room/")
 	if code == "" || code == "create" || code == "join" {
 		http.Redirect(w, r, "/rooms", http.StatusSeeOther)
 		return
 	}
 
-	// Récupérer la salle par code ou par ID
 	manager := GetManager()
 	room, err := manager.GetRoomByCode(code)
 	if err != nil {
-		// Essayer par ID si le code ne marche pas
 		room, err = manager.GetRoom(code)
 		if err != nil || room == nil {
 			http.Error(w, "Salle introuvable", http.StatusNotFound)
@@ -94,7 +80,6 @@ func (h *Handler) HandleRoom(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
-	// Vérifier si l'utilisateur est dans la salle (accès à la map Players)
 	var player *models.Player
 	room.Mutex.RLock()
 	if p, exists := room.Players[user.ID]; exists {
@@ -103,12 +88,10 @@ func (h *Handler) HandleRoom(w http.ResponseWriter, r *http.Request) {
 	room.Mutex.RUnlock()
 
 	if player == nil {
-		// L'utilisateur n'est pas dans la salle, rediriger vers le lobby
 		http.Redirect(w, r, "/rooms?error=not_in_room", http.StatusSeeOther)
 		return
 	}
 
-	// Déterminer le template à utiliser selon le type de jeu
 	var tmplFile string
 	switch room.GameType {
 	case models.GameTypeBlindTest:
@@ -119,7 +102,6 @@ func (h *Handler) HandleRoom(w http.ResponseWriter, r *http.Request) {
 		tmplFile = "room.html"
 	}
 
-	// Préparer les données pour le template
 	data := map[string]interface{}{
 		"Title":  room.Name,
 		"User":   user,
@@ -127,7 +109,6 @@ func (h *Handler) HandleRoom(w http.ResponseWriter, r *http.Request) {
 		"Player": player,
 	}
 
-	// Charger et exécuter le template
 	tmplPath := filepath.Join(h.templateDir, tmplFile)
 	tmpl, err := template.ParseFiles(tmplPath)
 	if err != nil {
@@ -144,7 +125,6 @@ func (h *Handler) HandleRoom(w http.ResponseWriter, r *http.Request) {
 	}
 }
 
-// HandleGetRooms renvoie la liste des salles en JSON
 func (h *Handler) HandleGetRooms(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodGet {
 		http.Error(w, "Méthode non autorisée", http.StatusMethodNotAllowed)
@@ -161,14 +141,12 @@ func (h *Handler) HandleGetRooms(w http.ResponseWriter, r *http.Request) {
 	})
 }
 
-// HandleCreateRoom crée une nouvelle salle
 func (h *Handler) HandleCreateRoom(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodPost {
 		http.Error(w, "Méthode non autorisée", http.StatusMethodNotAllowed)
 		return
 	}
 
-	// Vérifier l'authentification
 	sessionManager := auth.NewSessionManager()
 	user, err := sessionManager.GetUserFromRequest(r)
 	if err != nil {
@@ -176,7 +154,6 @@ func (h *Handler) HandleCreateRoom(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Parser le formulaire
 	if err := r.ParseForm(); err != nil {
 		http.Error(w, "Erreur parsing formulaire", http.StatusBadRequest)
 		return
@@ -185,13 +162,11 @@ func (h *Handler) HandleCreateRoom(w http.ResponseWriter, r *http.Request) {
 	roomName := r.FormValue("room_name")
 	gameTypeStr := r.FormValue("game_type")
 
-	// Validation
 	if roomName == "" {
 		http.Error(w, "Le nom de la salle est requis", http.StatusBadRequest)
 		return
 	}
 
-	// Convertir le type de jeu en models.GameType
 	var gameType models.GameType
 	switch gameTypeStr {
 	case "blindtest":
@@ -203,8 +178,6 @@ func (h *Handler) HandleCreateRoom(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Créer la salle avec la bonne signature
-	// CreateRoom(name string, hostID int64, hostPseudo string, gameType models.GameType)
 	manager := GetManager()
 	room, err := manager.CreateRoom(roomName, user.ID, user.Pseudo, gameType)
 	if err != nil {
@@ -213,20 +186,58 @@ func (h *Handler) HandleCreateRoom(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	if gameType == models.GameTypePetitBac {
+		room.Mutex.Lock()
+
+		categories := r.Form["categories"]
+		if len(categories) >= 3 {
+			room.Config.Categories = categories
+			log.Printf("[ROOMS] Catégories personnalisées: %v", categories)
+		} else {
+			room.Config.Categories = models.DefaultPetitBacCategories
+		}
+
+		roundTimeStr := r.FormValue("round_time")
+		if roundTimeStr != "" {
+			if roundTime, err := strconv.Atoi(roundTimeStr); err == nil && roundTime >= 30 && roundTime <= 120 {
+				room.Config.TimePerRound = roundTime
+				log.Printf("[ROOMS] Temps par manche: %ds", roundTime)
+			} else {
+				room.Config.TimePerRound = 60
+			}
+		} else {
+			room.Config.TimePerRound = 60
+		}
+
+		roundCountStr := r.FormValue("round_count")
+		if roundCountStr != "" {
+			if roundCount, err := strconv.Atoi(roundCountStr); err == nil && roundCount >= 3 && roundCount <= 15 {
+				room.Config.NbRounds = roundCount
+				log.Printf("[ROOMS] Nombre de manches: %d", roundCount)
+			} else {
+				room.Config.NbRounds = models.NbrsManche
+			}
+		} else {
+			room.Config.NbRounds = models.NbrsManche
+		}
+
+		room.Mutex.Unlock()
+
+		log.Printf("[ROOMS] Config Petit Bac: %d catégories, %ds/manche, %d manches",
+			len(room.Config.Categories), room.Config.TimePerRound, room.Config.NbRounds)
+	}
+
 	log.Printf("[ROOMS] Salle créée: %s (%s) par %s", room.Code, room.Name, user.Pseudo)
 
-	// Rediriger vers la salle
 	http.Redirect(w, r, "/room/"+room.Code, http.StatusSeeOther)
 }
 
-// HandleJoinRoom permet de rejoindre une salle
 func (h *Handler) HandleJoinRoom(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodPost {
 		http.Error(w, "Méthode non autorisée", http.StatusMethodNotAllowed)
 		return
 	}
 
-	// Vérifier l'authentification
 	sessionManager := auth.NewSessionManager()
 	user, err := sessionManager.GetUserFromRequest(r)
 	if err != nil {
@@ -234,7 +245,6 @@ func (h *Handler) HandleJoinRoom(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Parser le formulaire
 	if err := r.ParseForm(); err != nil {
 		http.Error(w, "Erreur parsing formulaire", http.StatusBadRequest)
 		return
@@ -246,11 +256,9 @@ func (h *Handler) HandleJoinRoom(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Rejoindre la salle par code
 	manager := GetManager()
 	room, err := manager.GetRoomByCode(code)
 	if err != nil {
-		// Essayer par ID
 		room, err = manager.GetRoom(code)
 		if err != nil || room == nil {
 			http.Redirect(w, r, "/room/join?error=Salle+introuvable", http.StatusSeeOther)
@@ -258,7 +266,6 @@ func (h *Handler) HandleJoinRoom(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
-	// Créer le joueur avec les infos de l'utilisateur
 	player := &models.Player{
 		UserID:  user.ID,
 		Pseudo:  user.Pseudo,
@@ -266,41 +273,34 @@ func (h *Handler) HandleJoinRoom(w http.ResponseWriter, r *http.Request) {
 		IsReady: false,
 	}
 
-	// Ajouter le joueur dans la map Players
 	room.Mutex.Lock()
 
-	// Vérifier si le joueur n'est pas déjà dans la salle
 	if _, exists := room.Players[user.ID]; exists {
 		room.Mutex.Unlock()
 		http.Redirect(w, r, "/room/"+room.Code, http.StatusSeeOther)
 		return
 	}
 
-	// Vérifier que la salle n'est pas pleine (max 8 joueurs)
 	if len(room.Players) >= 8 {
 		room.Mutex.Unlock()
 		http.Redirect(w, r, "/room/join?error=Salle+pleine", http.StatusSeeOther)
 		return
 	}
 
-	// Ajouter le joueur à la map
 	room.Players[user.ID] = player
 	room.Mutex.Unlock()
 
 	log.Printf("[ROOMS] %s a rejoint la salle %s", user.Pseudo, room.Code)
 
-	// Rediriger vers la salle
 	http.Redirect(w, r, "/room/"+room.Code, http.StatusSeeOther)
 }
 
-// HandleLeaveRoom permet de quitter une salle
 func (h *Handler) HandleLeaveRoom(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodPost {
 		http.Error(w, "Méthode non autorisée", http.StatusMethodNotAllowed)
 		return
 	}
 
-	// Vérifier l'authentification
 	sessionManager := auth.NewSessionManager()
 	user, err := sessionManager.GetUserFromRequest(r)
 	if err != nil {
@@ -308,7 +308,6 @@ func (h *Handler) HandleLeaveRoom(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Parser le JSON
 	var req struct {
 		RoomCode string `json:"room_code"`
 	}
@@ -317,7 +316,6 @@ func (h *Handler) HandleLeaveRoom(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Récupérer la salle par code
 	manager := GetManager()
 	room, err := manager.GetRoomByCode(req.RoomCode)
 	if err != nil {
@@ -328,7 +326,6 @@ func (h *Handler) HandleLeaveRoom(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
-	// Retirer le joueur de la map Players
 	room.Mutex.Lock()
 	delete(room.Players, user.ID)
 	room.Mutex.Unlock()
@@ -342,14 +339,12 @@ func (h *Handler) HandleLeaveRoom(w http.ResponseWriter, r *http.Request) {
 	})
 }
 
-// HandleRestartRoom redémarre une partie terminée
 func (h *Handler) HandleRestartRoom(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodPost {
 		http.Error(w, "Méthode non autorisée", http.StatusMethodNotAllowed)
 		return
 	}
 
-	// Vérifier l'authentification
 	sessionManager := auth.NewSessionManager()
 	user, err := sessionManager.GetUserFromRequest(r)
 	if err != nil {
@@ -357,11 +352,9 @@ func (h *Handler) HandleRestartRoom(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Extraire le code depuis l'URL (/api/rooms/{code}/restart)
 	path := strings.TrimPrefix(r.URL.Path, "/api/rooms/")
 	code := strings.TrimSuffix(path, "/restart")
 
-	// Récupérer la salle par code
 	manager := GetManager()
 	room, err := manager.GetRoomByCode(code)
 	if err != nil {
@@ -372,18 +365,19 @@ func (h *Handler) HandleRestartRoom(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
-	// Vérifier que l'utilisateur est l'hôte
 	if room.HostID != user.ID {
 		http.Error(w, "Seul l'hôte peut redémarrer la partie", http.StatusForbidden)
 		return
 	}
 
-	// Redémarrer la partie (réinitialiser les scores et le statut)
 	room.Mutex.Lock()
 	room.Status = models.RoomStatusWaiting
 	for _, player := range room.Players {
 		player.Score = 0
 		player.IsReady = false
+	}
+	if room.GameType == models.GameTypePetitBac {
+		room.Config.UsedLetters = []string{}
 	}
 	room.Mutex.Unlock()
 

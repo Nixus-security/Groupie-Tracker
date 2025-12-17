@@ -1,5 +1,3 @@
-// Package rooms - service.go
-// Service pour la persistance des salles en base de données
 package rooms
 
 import (
@@ -10,13 +8,11 @@ import (
 	"groupie-tracker/internal/models"
 )
 
-// PersistenceService gère la persistance des salles
 type PersistenceService struct {
 	db      *sql.DB
 	manager *Manager
 }
 
-// NewPersistenceService crée une nouvelle instance du service de persistance
 func NewPersistenceService() *PersistenceService {
 	return &PersistenceService{
 		db:      database.GetDB(),
@@ -24,7 +20,6 @@ func NewPersistenceService() *PersistenceService {
 	}
 }
 
-// SaveRoom sauvegarde une salle en base de données
 func (s *PersistenceService) SaveRoom(room *models.Room) error {
 	room.Mutex.RLock()
 	defer room.Mutex.RUnlock()
@@ -42,18 +37,15 @@ func (s *PersistenceService) SaveRoom(room *models.Room) error {
 	return err
 }
 
-// SaveRoomPlayers sauvegarde les joueurs d'une salle
 func (s *PersistenceService) SaveRoomPlayers(room *models.Room) error {
 	room.Mutex.RLock()
 	defer room.Mutex.RUnlock()
 
-	// Supprimer les anciens joueurs
 	_, err := s.db.Exec("DELETE FROM room_players WHERE room_id = ?", room.ID)
 	if err != nil {
 		return err
 	}
 
-	// Insérer les joueurs actuels
 	for _, player := range room.Players {
 		_, err := s.db.Exec(`
 			INSERT INTO room_players (room_id, user_id, score, is_host)
@@ -67,7 +59,6 @@ func (s *PersistenceService) SaveRoomPlayers(room *models.Room) error {
 	return nil
 }
 
-// SaveGameScores sauvegarde les scores d'une partie
 func (s *PersistenceService) SaveGameScores(room *models.Room, roundScores map[int64][]int) error {
 	room.Mutex.RLock()
 	defer room.Mutex.RUnlock()
@@ -87,7 +78,6 @@ func (s *PersistenceService) SaveGameScores(room *models.Room, roundScores map[i
 	return nil
 }
 
-// GetUserGameHistory récupère l'historique des parties d'un utilisateur
 func (s *PersistenceService) GetUserGameHistory(userID int64, limit int) ([]GameHistoryEntry, error) {
 	query := `
 		SELECT gs.room_id, r.name, gs.game_type, gs.score, gs.round_scores, gs.created_at
@@ -121,17 +111,15 @@ func (s *PersistenceService) GetUserGameHistory(userID int64, limit int) ([]Game
 	return history, nil
 }
 
-// GameHistoryEntry représente une entrée d'historique
 type GameHistoryEntry struct {
-	RoomID      string           `json:"room_id"`
-	RoomName    string           `json:"room_name"`
-	GameType    models.GameType  `json:"game_type"`
-	Score       int              `json:"score"`
-	RoundScores []int            `json:"round_scores"`
-	PlayedAt    string           `json:"played_at"`
+	RoomID      string          `json:"room_id"`
+	RoomName    string          `json:"room_name"`
+	GameType    models.GameType `json:"game_type"`
+	Score       int             `json:"score"`
+	RoundScores []int           `json:"round_scores"`
+	PlayedAt    string          `json:"played_at"`
 }
 
-// GetLeaderboard récupère le classement général
 func (s *PersistenceService) GetLeaderboard(gameType models.GameType, limit int) ([]LeaderboardEntry, error) {
 	query := `
 		SELECT u.id, u.pseudo, SUM(gs.score) as total_score, COUNT(gs.id) as games_played
@@ -165,7 +153,6 @@ func (s *PersistenceService) GetLeaderboard(gameType models.GameType, limit int)
 	return leaderboard, nil
 }
 
-// LeaderboardEntry représente une entrée du classement
 type LeaderboardEntry struct {
 	Rank        int    `json:"rank"`
 	UserID      int64  `json:"user_id"`
@@ -174,7 +161,6 @@ type LeaderboardEntry struct {
 	GamesPlayed int    `json:"games_played"`
 }
 
-// CleanOldRooms supprime les salles terminées de plus de 24h
 func (s *PersistenceService) CleanOldRooms() error {
 	_, err := s.db.Exec(`
 		DELETE FROM rooms 

@@ -1,4 +1,3 @@
-// Package petitbac gère la logique du jeu Petit Bac Musical
 package petitbac
 
 import (
@@ -14,7 +13,6 @@ import (
 	"groupie-tracker/internal/websocket"
 )
 
-// Handler gère les messages WebSocket pour le Petit Bac
 type Handler struct {
 	gameManager *GameManager
 	roomManager *rooms.Manager
@@ -28,7 +26,6 @@ var (
 	handlerOnce     sync.Once
 )
 
-// GetHandler retourne l'instance singleton du handler
 func GetHandler() *Handler {
 	handlerOnce.Do(func() {
 		handlerInstance = &Handler{
@@ -41,75 +38,103 @@ func GetHandler() *Handler {
 	return handlerInstance
 }
 
-// HandleMessage traite les messages WebSocket du Petit Bac
 func (h *Handler) HandleMessage(client *websocket.Client, msg *models.WSMessage) {
-	log.Printf("[PetitBac] 📨 Message reçu: type=%s", msg.Type)
-	
+	log.Printf("[PetitBac] 📨 HandleMessage: type=%s, user=%d", msg.Type, client.UserID)
+
 	switch msg.Type {
-	case "submit_answers":
+	case models.WSTypePBSubmitAnswers:
 		h.handleSubmitAnswers(client, msg)
-	case "stop_round":
+	case models.WSTypePBStopRound:
 		h.handleStopRound(client, msg)
-	case "submit_votes":
+	case models.WSTypePBSubmitVotes:
 		h.handleSubmitVotes(client, msg)
 	default:
 		log.Printf("[PetitBac] ⚠️ Message non géré: %s", msg.Type)
 	}
 }
 
-// StartGame démarre une partie de Petit Bac
 func (h *Handler) StartGame(roomCode string, categories []string, rounds int) error {
 	room, err := h.roomManager.GetRoomByCode(roomCode)
 	if err != nil {
 		room, err = h.roomManager.GetRoom(roomCode)
 		if err != nil {
-			log.Printf("[PetitBac] ❌ Salle non trouvée: %s", roomCode)
+			return h.StartGameWithDuration(roomCode, categories, rounds, DefaultAnswerTime)
+		}
+	}
+
+	room.Mutex.RLock()
+	configCategories := room.Config.Categories
+	configRounds := room.Config.NbRounds
+	configDuration := room.Config.TimePerRound
+	room.Mutex.RUnlock()
+
+	if len(configCategories) > 0 {
+		categories = configCategories
+	}
+	if configRounds > 0 {
+		rounds = configRounds
+	}
+	if configDuration <= 0 {
+		configDuration = DefaultAnswerTime
+	}
+
+	log.Printf("[PetitBac] Config chargée: %d catégories, %d manches, %ds/manche", len(categories), rounds, configDuration)
+
+	return h.StartGameWithDuration(roomCode, categories, rounds, configDuration)
+}
+
+func (h *Handler) StartGameWithDuration(roomCode string, categories []string, rounds int, duration int) error {
+	log.Printf("[PetitBac] 🎮 StartGame appelé - roomCode=%s, categories=%v, rounds=%d, duration=%d", roomCode, categories, rounds, duration)
+
+	room, err := h.roomManager.GetRoomByCode(roomCode)
+	if err != nil {
+		log.Printf("[PetitBac] GetRoomByCode échoué, essai GetRoom...")
+		room, err = h.roomManager.GetRoom(roomCode)
+		if err != nil {
+			log.Printf("[PetitBac] ❌ Salle non trouvée: %s - %v", roomCode, err)
 			return err
 		}
 	}
 
-	log.Printf("[PetitBac] 🎮 Démarrage partie - RoomID: %s, RoomCode: %s", room.ID, roomCode)
+	log.Printf("[PetitBac] ✅ Salle trouvée - ID=%s, Code=%s", room.ID, room.Code)
 
-	// Démarrer la partie
-	_, err = h.gameManager.StartGame(room.ID, categories, rounds)
+	_, err = h.gameManager.StartGameWithDuration(room.ID, categories, rounds, duration)
 	if err != nil {
-		log.Printf("[PetitBac] ❌ Erreur StartGame: %v", err)
+		log.Printf("[PetitBac] ❌ Erreur gameManager.StartGame: %v", err)
 		return err
 	}
 
-	log.Printf("[PetitBac] ✅ Partie initialisée dans la salle %s (%d manches)", roomCode, rounds)
+	log.Printf("[PetitBac] ✅ Partie initialisée - RoomID=%s, RoomCode=%s, Manches=%d, Durée=%ds", room.ID, room.Code, rounds, duration)
 
-	// Créer le canal pour stopper le timer
 	h.mutex.Lock()
 	h.stopTimers[room.ID] = make(chan bool, 1)
 	h.mutex.Unlock()
 
-	// Notifier tous les joueurs
-	gameStartMsg := &models.WSMessage{
+	log.Printf("[PetitBac] 📤 Broadcast game_start vers roomCode=%s", room.Code)
+
+	h.hub.Broadcast(room.Code, &models.WSMessage{
 		Type: "game_start",
 		Payload: map[string]interface{}{
 			"game_type":  "petitbac",
 			"categories": categories,
 			"rounds":     rounds,
+			"duration":   duration,
 		},
-	}
-	log.Printf("[PetitBac] 📤 Envoi game_start à la salle %s", roomCode)
-	h.hub.Broadcast(roomCode, gameStartMsg)
+	})
 
-	// Lancer la première manche après un court délai
 	go func() {
+		log.Printf("[PetitBac] ⏳ Attente 2s avant première manche...")
 		time.Sleep(2 * time.Second)
-		log.Printf("[PetitBac] ⏰ Délai écoulé, lancement première manche")
-		h.startNextRound(room.ID, roomCode)
+		log.Printf("[PetitBac] 🚀 Lancement première manche - RoomID=%s, RoomCode=%s", room.ID, room.Code)
+		h.startNextRound(room.ID, room.Code)
 	}()
 
 	return nil
 }
 
-// startNextRound démarre la prochaine manche
 func (h *Handler) startNextRound(roomID, roomCode string) {
-	log.Printf("[PetitBac] 🔄 startNextRound - RoomID: %s, RoomCode: %s", roomID, roomCode)
-	
+	log.Printf("[PetitBac] 🔄 startNextRound - RoomID=%s, RoomCode=%s", roomID, roomCode)
+
 	roundInfo, err := h.gameManager.NextRound(roomID)
 	if err != nil {
 		log.Printf("[PetitBac] ❌ Erreur NextRound: %v", err)
@@ -120,23 +145,20 @@ func (h *Handler) startNextRound(roomID, roomCode string) {
 		return
 	}
 
-	// Jeu terminé ?
 	if roundInfo == nil {
-		log.Printf("[PetitBac] 🏁 Jeu terminé pour salle %s", roomCode)
+		log.Printf("[PetitBac] 🏁 Jeu terminé pour salle %s (roundInfo nil)", roomCode)
 		h.endGame(roomID, roomCode)
 		return
 	}
 
-	log.Printf("[PetitBac] 📝 Manche %d/%d - Lettre: %s", roundInfo.Round, roundInfo.Total, roundInfo.Letter)
+	log.Printf("[PetitBac] 📝 Nouvelle manche - Round=%d/%d, Lettre=%s", roundInfo.Round, roundInfo.Total, roundInfo.Letter)
 
-	// Recréer le canal stop pour cette manche
 	h.mutex.Lock()
 	if _, exists := h.stopTimers[roomID]; !exists {
 		h.stopTimers[roomID] = make(chan bool, 1)
 	}
 	h.mutex.Unlock()
 
-	// Construire le payload explicitement pour éviter les problèmes de sérialisation
 	payload := map[string]interface{}{
 		"round":      roundInfo.Round,
 		"total":      roundInfo.Total,
@@ -145,23 +167,22 @@ func (h *Handler) startNextRound(roomID, roomCode string) {
 		"duration":   roundInfo.Duration,
 	}
 
-	log.Printf("[PetitBac] 📤 Envoi new_round: %+v", payload)
+	log.Printf("[PetitBac] 📤 Broadcast new_round vers roomCode=%s - payload=%+v", roomCode, payload)
 
-	// Envoyer les infos de la manche à tous les joueurs
 	h.hub.Broadcast(roomCode, &models.WSMessage{
 		Type:    "new_round",
 		Payload: payload,
 	})
 
-	// Démarrer le timer
 	go h.runRoundTimer(roomID, roomCode, roundInfo.Duration)
 }
 
-// runRoundTimer gère le timer d'une manche
 func (h *Handler) runRoundTimer(roomID, roomCode string, duration int) {
+	log.Printf("[PetitBac] ⏱️ Timer démarré - %d secondes, RoomID=%s", duration, roomID)
+
 	state := h.gameManager.GetGameState(roomID)
 	if state == nil {
-		log.Printf("[PetitBac] ❌ État du jeu non trouvé pour %s", roomID)
+		log.Printf("[PetitBac] ❌ État du jeu non trouvé pour RoomID=%s", roomID)
 		return
 	}
 
@@ -170,11 +191,9 @@ func (h *Handler) runRoundTimer(roomID, roomCode string, duration int) {
 	h.mutex.Unlock()
 
 	if stopChan == nil {
-		log.Printf("[PetitBac] ❌ Stop channel non trouvé")
+		log.Printf("[PetitBac] ❌ Stop channel non trouvé pour RoomID=%s", roomID)
 		return
 	}
-
-	log.Printf("[PetitBac] ⏱️ Timer démarré: %d secondes", duration)
 
 	ticker := time.NewTicker(1 * time.Second)
 	defer ticker.Stop()
@@ -182,10 +201,9 @@ func (h *Handler) runRoundTimer(roomID, roomCode string, duration int) {
 	timeLeft := duration
 
 	for timeLeft >= 0 {
-		// Vérifier si on doit arrêter (STOP! appuyé)
 		select {
 		case <-stopChan:
-			log.Printf("[PetitBac] ⏹️ Timer interrompu (STOP!)")
+			log.Printf("[PetitBac] ⏹️ Timer interrompu par STOP!")
 			h.mutex.Lock()
 			h.stopTimers[roomID] = make(chan bool, 1)
 			h.mutex.Unlock()
@@ -198,7 +216,6 @@ func (h *Handler) runRoundTimer(roomID, roomCode string, duration int) {
 		state.TimeLeft = timeLeft
 		state.Mutex.Unlock()
 
-		// Envoyer le temps restant
 		h.hub.Broadcast(roomCode, &models.WSMessage{
 			Type: "time_update",
 			Payload: map[string]interface{}{
@@ -206,15 +223,34 @@ func (h *Handler) runRoundTimer(roomID, roomCode string, duration int) {
 			},
 		})
 
-		// Vérifier si le jeu existe toujours
 		if h.gameManager.GetGameState(roomID) == nil {
-			log.Printf("[PetitBac] Jeu terminé pendant le timer")
+			log.Printf("[PetitBac] ⚠️ Jeu terminé pendant le timer")
 			return
 		}
 
-		// Vérifier si tous les joueurs ont soumis
 		if h.gameManager.AllPlayersSubmitted(roomID) {
-			log.Printf("[PetitBac] ✅ Tous les joueurs ont soumis leurs réponses")
+			log.Printf("[PetitBac] ✅ Tous les joueurs ont soumis")
+			h.startVotingPhase(roomID, roomCode)
+			return
+		}
+
+		if filled, userID := h.gameManager.AnyPlayerFilledAll(roomID); filled {
+			log.Printf("[PetitBac] ✅ Joueur %d a rempli toutes les catégories - arrêt du tour", userID)
+			
+			player, _ := h.roomManager.GetPlayer(roomID, userID)
+			pseudo := "Un joueur"
+			if player != nil {
+				pseudo = player.Pseudo
+			}
+			
+			h.hub.Broadcast(roomCode, &models.WSMessage{
+				Type: "round_stop",
+				Payload: map[string]interface{}{
+					"stopped_by": pseudo,
+					"reason":     "all_filled",
+				},
+			})
+			
 			h.startVotingPhase(roomID, roomCode)
 			return
 		}
@@ -240,8 +276,9 @@ func (h *Handler) runRoundTimer(roomID, roomCode string, duration int) {
 	h.startVotingPhase(roomID, roomCode)
 }
 
-// handleSubmitAnswers traite la soumission des réponses
 func (h *Handler) handleSubmitAnswers(client *websocket.Client, msg *models.WSMessage) {
+	log.Printf("[PetitBac] 📝 handleSubmitAnswers de %s (ID=%d)", client.Pseudo, client.UserID)
+
 	payloadBytes, err := json.Marshal(msg.Payload)
 	if err != nil {
 		log.Printf("[PetitBac] ❌ Erreur marshal payload: %v", err)
@@ -253,12 +290,11 @@ func (h *Handler) handleSubmitAnswers(client *websocket.Client, msg *models.WSMe
 		Answers map[string]string `json:"answers"`
 	}
 	if err := json.Unmarshal(payloadBytes, &data); err != nil {
-		log.Printf("[PetitBac] ❌ Erreur unmarshal answers: %v", err)
 		client.SendError("Format de réponse invalide")
 		return
 	}
 
-	log.Printf("[PetitBac] 📝 Réponses de %s (ID: %d): %+v", client.Pseudo, client.UserID, data.Answers)
+	log.Printf("[PetitBac] 📝 Réponses reçues: %+v", data.Answers)
 
 	room, err := h.roomManager.GetRoomByCode(client.RoomCode)
 	if err != nil {
@@ -277,6 +313,8 @@ func (h *Handler) handleSubmitAnswers(client *websocket.Client, msg *models.WSMe
 		return
 	}
 
+	log.Printf("[PetitBac] ✅ Réponses de %s enregistrées", client.Pseudo)
+
 	client.Send(&models.WSMessage{
 		Type: "answers_submitted",
 		Payload: map[string]interface{}{
@@ -284,7 +322,7 @@ func (h *Handler) handleSubmitAnswers(client *websocket.Client, msg *models.WSMe
 		},
 	})
 
-	h.hub.Broadcast(client.RoomCode, &models.WSMessage{
+	h.hub.Broadcast(room.Code, &models.WSMessage{
 		Type: "player_submitted",
 		Payload: map[string]interface{}{
 			"user_id": client.UserID,
@@ -293,10 +331,9 @@ func (h *Handler) handleSubmitAnswers(client *websocket.Client, msg *models.WSMe
 	})
 }
 
-// handleStopRound traite le STOP d'un joueur
 func (h *Handler) handleStopRound(client *websocket.Client, msg *models.WSMessage) {
-	log.Printf("[PetitBac] 🛑 STOP reçu de %s", client.Pseudo)
-	
+	log.Printf("[PetitBac] 🛑 handleStopRound de %s", client.Pseudo)
+
 	room, err := h.roomManager.GetRoomByCode(client.RoomCode)
 	if err != nil {
 		room, err = h.roomManager.GetRoom(client.RoomCode)
@@ -314,10 +351,11 @@ func (h *Handler) handleStopRound(client *websocket.Client, msg *models.WSMessag
 
 	log.Printf("[PetitBac] 🛑 %s a appuyé sur STOP!", client.Pseudo)
 
-	h.hub.Broadcast(client.RoomCode, &models.WSMessage{
+	h.hub.Broadcast(room.Code, &models.WSMessage{
 		Type: "round_stop",
 		Payload: map[string]interface{}{
 			"stopped_by": client.Pseudo,
+			"reason":     "manual",
 		},
 	})
 
@@ -327,36 +365,20 @@ func (h *Handler) handleStopRound(client *websocket.Client, msg *models.WSMessag
 		case stopChan <- true:
 			log.Printf("[PetitBac] ✅ Signal STOP envoyé au timer")
 		default:
-			log.Printf("[PetitBac] ⚠️ Canal STOP plein ou fermé")
+			log.Printf("[PetitBac] ⚠️ Canal STOP plein")
 		}
+	} else {
+		log.Printf("[PetitBac] ⚠️ Pas de canal STOP pour room %s", room.ID)
 	}
 	h.mutex.Unlock()
 }
 
-// startVotingPhase démarre la phase de vote
 func (h *Handler) startVotingPhase(roomID, roomCode string) {
-	log.Printf("[PetitBac] 🗳️ Démarrage phase de vote - RoomID: %s", roomID)
-	
+	log.Printf("[PetitBac] 🗳️ startVotingPhase - RoomID=%s, RoomCode=%s", roomID, roomCode)
+
 	state := h.gameManager.GetGameState(roomID)
 	if state == nil {
-		log.Printf("[PetitBac] ❌ État du jeu non trouvé pour startVotingPhase")
-		return
-	}
-
-	room, err := h.roomManager.GetRoom(roomID)
-	if err != nil {
-		log.Printf("[PetitBac] ❌ Salle non trouvée: %v", err)
-		return
-	}
-
-	room.Mutex.RLock()
-	playerCount := len(room.Players)
-	room.Mutex.RUnlock()
-
-	// En mode solo, pas besoin de phase de vote
-	if playerCount == 1 {
-		log.Printf("[PetitBac] 🎯 Mode solo: pas de phase de vote")
-		h.skipVotingAndCalculateScores(roomID, roomCode)
+		log.Printf("[PetitBac] ❌ État du jeu non trouvé")
 		return
 	}
 
@@ -384,7 +406,7 @@ func (h *Handler) startVotingPhase(roomID, roomCode string) {
 		}
 	}
 
-	log.Printf("[PetitBac] 🗳️ Phase de vote démarrée avec %d réponses", len(answers))
+	log.Printf("[PetitBac] 🗳️ Phase de vote - %d réponses à valider", len(answers))
 
 	h.hub.Broadcast(roomCode, &models.WSMessage{
 		Type: "voting_start",
@@ -398,70 +420,9 @@ func (h *Handler) startVotingPhase(roomID, roomCode string) {
 	go h.runVotingTimer(roomID, roomCode, votingInfo.Duration)
 }
 
-// skipVotingAndCalculateScores pour le mode solo
-func (h *Handler) skipVotingAndCalculateScores(roomID, roomCode string) {
-	log.Printf("[PetitBac] 🎯 skipVotingAndCalculateScores - Mode solo")
-	
-	state := h.gameManager.GetGameState(roomID)
-	if state != nil {
-		state.Mutex.Lock()
-		state.Phase = PhaseResults
-		state.Mutex.Unlock()
-	}
-
-	roundScores := h.gameManager.CalculateRoundScores(roomID)
-	if roundScores == nil {
-		log.Printf("[PetitBac] ❌ roundScores nil")
-		return
-	}
-
-	var results []map[string]interface{}
-	for userID, score := range roundScores.Scores {
-		player, _ := h.roomManager.GetPlayer(roomID, userID)
-		pseudo := "Inconnu"
-		if player != nil {
-			pseudo = player.Pseudo
-		}
-		results = append(results, map[string]interface{}{
-			"user_id": userID,
-			"pseudo":  pseudo,
-			"points":  score,
-		})
-	}
-
-	scores := h.gameManager.GetScores(roomID)
-	scoresMap := make(map[int64]map[string]interface{})
-	for _, s := range scores {
-		scoresMap[s.UserID] = map[string]interface{}{
-			"pseudo": s.Pseudo,
-			"score":  s.Score,
-		}
-	}
-
-	log.Printf("[PetitBac] 📤 Envoi round_result")
-
-	h.hub.Broadcast(roomCode, &models.WSMessage{
-		Type: "round_result",
-		Payload: map[string]interface{}{
-			"results": results,
-			"details": roundScores.Details,
-			"scores":  scoresMap,
-		},
-	})
-
-	time.Sleep(4 * time.Second)
-
-	if h.gameManager.IsGameOver(roomID) {
-		log.Printf("[PetitBac] 🏁 Partie terminée pour salle %s", roomCode)
-		h.endGame(roomID, roomCode)
-	} else {
-		log.Printf("[PetitBac] ➡️ Passage à la manche suivante")
-		h.startNextRound(roomID, roomCode)
-	}
-}
-
-// runVotingTimer gère le timer de vote
 func (h *Handler) runVotingTimer(roomID, roomCode string, duration int) {
+	log.Printf("[PetitBac] ⏱️ Timer vote démarré - %d secondes", duration)
+
 	ticker := time.NewTicker(1 * time.Second)
 	defer ticker.Stop()
 
@@ -482,10 +443,9 @@ func (h *Handler) runVotingTimer(roomID, roomCode string, duration int) {
 	h.calculateAndShowResults(roomID, roomCode)
 }
 
-// handleSubmitVotes traite la soumission des votes
 func (h *Handler) handleSubmitVotes(client *websocket.Client, msg *models.WSMessage) {
-	log.Printf("[PetitBac] 🗳️ Votes reçus de %s", client.Pseudo)
-	
+	log.Printf("[PetitBac] 🗳️ handleSubmitVotes de %s", client.Pseudo)
+
 	payloadBytes, err := json.Marshal(msg.Payload)
 	if err != nil {
 		client.SendError("Payload invalide")
@@ -517,7 +477,6 @@ func (h *Handler) handleSubmitVotes(client *websocket.Client, msg *models.WSMess
 				continue
 			}
 			category := strings.Join(parts[1:], "_")
-
 			h.gameManager.SubmitVote(room.ID, client.UserID, targetUserID, category, !accept)
 		}
 	}
@@ -530,13 +489,12 @@ func (h *Handler) handleSubmitVotes(client *websocket.Client, msg *models.WSMess
 	})
 }
 
-// calculateAndShowResults calcule et affiche les résultats
 func (h *Handler) calculateAndShowResults(roomID, roomCode string) {
-	log.Printf("[PetitBac] 📊 Calcul des résultats")
-	
+	log.Printf("[PetitBac] 📊 calculateAndShowResults")
+
 	roundScores := h.gameManager.CalculateRoundScores(roomID)
 	if roundScores == nil {
-		log.Printf("[PetitBac] ❌ roundScores nil dans calculateAndShowResults")
+		log.Printf("[PetitBac] ❌ roundScores nil")
 		return
 	}
 
@@ -575,18 +533,17 @@ func (h *Handler) calculateAndShowResults(roomID, roomCode string) {
 	time.Sleep(5 * time.Second)
 
 	if h.gameManager.IsGameOver(roomID) {
-		log.Printf("[PetitBac] 🏁 Partie terminée pour salle %s", roomCode)
+		log.Printf("[PetitBac] 🏁 Partie terminée")
 		h.endGame(roomID, roomCode)
 	} else {
-		log.Printf("[PetitBac] ➡️ Passage à la manche suivante")
+		log.Printf("[PetitBac] ➡️ Manche suivante")
 		h.startNextRound(roomID, roomCode)
 	}
 }
 
-// endGame termine la partie
 func (h *Handler) endGame(roomID, roomCode string) {
-	log.Printf("[PetitBac] 🏁 endGame - RoomID: %s", roomID)
-	
+	log.Printf("[PetitBac] 🏁 endGame - RoomID=%s, RoomCode=%s", roomID, roomCode)
+
 	h.mutex.Lock()
 	if stopChan, exists := h.stopTimers[roomID]; exists {
 		select {
@@ -600,7 +557,7 @@ func (h *Handler) endGame(roomID, roomCode string) {
 
 	result := h.gameManager.EndGame(roomID)
 	if result == nil {
-		log.Printf("[PetitBac] ❌ result nil dans endGame")
+		log.Printf("[PetitBac] ❌ result nil")
 		return
 	}
 
