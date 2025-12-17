@@ -224,198 +224,704 @@
     <div class="toast-container" id="toastContainer"></div>
 
     <script>
-    const CONFIG = { WS_RECONNECT_DELAY: 1000, WS_MAX_RECONNECT_ATTEMPTS: 10, TOAST_DURATION: 3000 };
-    const roomCode = '{{.Room.Code}}', roomId = '{{.Room.ID}}', userId = '{{.User.ID}}', isHost = '{{.Player.IsHost}}' === 'true';
-    let ws = null, wsConnected = false, wsReconnectAttempts = 0, wsReconnectTimer = null;
-    let isReady = false, currentVotes = {}, currentLetter = '', hasSubmittedAnswers = false, hasSubmittedVotes = false;
+    // ============================================================================
+    // CONFIGURATION
+    // ============================================================================
+    const CONFIG = { 
+        WS_RECONNECT_DELAY: 1000, 
+        WS_MAX_RECONNECT_ATTEMPTS: 10, 
+        TOAST_DURATION: 3000,
+        DEBUG: true  // Activer les logs de debug
+    };
+    
+    const roomCode = '{{.Room.Code}}';
+    const roomId = '{{.Room.ID}}';
+    const userId = '{{.User.ID}}';
+    const isHost = '{{.Player.IsHost}}' === 'true';
+    
+    let ws = null;
+    let wsConnected = false;
+    let wsReconnectAttempts = 0;
+    let wsReconnectTimer = null;
+    let isReady = false;
+    let currentVotes = {};
+    let currentLetter = '';
+    let hasSubmittedAnswers = false;
+    let hasSubmittedVotes = false;
     let DOM = {};
+
+    // ============================================================================
+    // FONCTIONS UTILITAIRES
+    // ============================================================================
+    function debug(...args) {
+        if (CONFIG.DEBUG) {
+            console.log('[PetitBac]', ...args);
+        }
+    }
 
     function initDOM() {
         DOM = {
-            connectionStatus: document.getElementById('connection-status'), connectionText: document.getElementById('connection-text'),
-            waitingState: document.getElementById('waiting-state'), playingState: document.getElementById('playing-state'), finishedState: document.getElementById('finished-state'),
-            currentRound: document.getElementById('currentRound'), totalRounds: document.getElementById('totalRounds'), currentLetter: document.getElementById('currentLetter'),
-            timer: document.getElementById('timer'), voteTimer: document.getElementById('voteTimer'),
-            answersForm: document.getElementById('answersForm'), answersPhase: document.getElementById('answersPhase'), votingPhase: document.getElementById('votingPhase'),
-            votingCategories: document.getElementById('votingCategories'), submittedMessage: document.getElementById('submittedMessage'),
-            roundResult: document.getElementById('roundResult'), roundScores: document.getElementById('roundScores'), nextRoundInfo: document.getElementById('nextRoundInfo'),
-            startBtn: document.getElementById('startBtn'), startHint: document.getElementById('startHint'), readyBtn: document.getElementById('readyBtn'),
-            readyBtnText: document.getElementById('readyBtnText'), submitAnswersBtn: document.getElementById('submitAnswersBtn'),
-            submitVotesBtn: document.getElementById('submitVotesBtn'), stopBtn: document.getElementById('stopBtn'),
-            playersList: document.getElementById('playersList'), playerCount: document.getElementById('playerCount'),
-            scoreboard: document.getElementById('scoreboard'), scoreList: document.getElementById('scoreList'),
-            winnerName: document.getElementById('winnerName'), winnerScore: document.getElementById('winnerScore'), finalRanking: document.getElementById('finalRanking')
+            connectionStatus: document.getElementById('connection-status'),
+            connectionText: document.getElementById('connection-text'),
+            waitingState: document.getElementById('waiting-state'),
+            playingState: document.getElementById('playing-state'),
+            finishedState: document.getElementById('finished-state'),
+            currentRound: document.getElementById('currentRound'),
+            totalRounds: document.getElementById('totalRounds'),
+            currentLetter: document.getElementById('currentLetter'),
+            timer: document.getElementById('timer'),
+            voteTimer: document.getElementById('voteTimer'),
+            answersForm: document.getElementById('answersForm'),
+            answersPhase: document.getElementById('answersPhase'),
+            votingPhase: document.getElementById('votingPhase'),
+            votingCategories: document.getElementById('votingCategories'),
+            submittedMessage: document.getElementById('submittedMessage'),
+            roundResult: document.getElementById('roundResult'),
+            roundScores: document.getElementById('roundScores'),
+            nextRoundInfo: document.getElementById('nextRoundInfo'),
+            startBtn: document.getElementById('startBtn'),
+            startHint: document.getElementById('startHint'),
+            readyBtn: document.getElementById('readyBtn'),
+            readyBtnText: document.getElementById('readyBtnText'),
+            submitAnswersBtn: document.getElementById('submitAnswersBtn'),
+            submitVotesBtn: document.getElementById('submitVotesBtn'),
+            stopBtn: document.getElementById('stopBtn'),
+            playersList: document.getElementById('playersList'),
+            playerCount: document.getElementById('playerCount'),
+            scoreboard: document.getElementById('scoreboard'),
+            scoreList: document.getElementById('scoreList'),
+            winnerName: document.getElementById('winnerName'),
+            winnerScore: document.getElementById('winnerScore'),
+            finalRanking: document.getElementById('finalRanking')
         };
+        debug('DOM initialisé', DOM);
     }
 
     function showToast(msg, type = 'info', duration = CONFIG.TOAST_DURATION) {
-        let c = document.getElementById('toastContainer'); if (!c) { c = document.createElement('div'); c.className = 'toast-container'; c.id = 'toastContainer'; document.body.appendChild(c); }
-        const t = document.createElement('div'); t.className = `toast toast-${type}`; t.innerHTML = `<span>${msg}</span>`; c.appendChild(t);
-        setTimeout(() => { t.classList.add('toast-exit'); setTimeout(() => t.remove(), 300); }, duration);
+        let container = document.getElementById('toastContainer');
+        if (!container) {
+            container = document.createElement('div');
+            container.className = 'toast-container';
+            container.id = 'toastContainer';
+            document.body.appendChild(container);
+        }
+        const toast = document.createElement('div');
+        toast.className = `toast toast-${type}`;
+        toast.innerHTML = `<span>${msg}</span>`;
+        container.appendChild(toast);
+        setTimeout(() => {
+            toast.classList.add('toast-exit');
+            setTimeout(() => toast.remove(), 300);
+        }, duration);
     }
 
-    function updateConnectionStatus(s) {
-        DOM.connectionStatus.className = `connection-status ${s}`;
+    function updateConnectionStatus(status) {
+        if (!DOM.connectionStatus) return;
+        DOM.connectionStatus.className = `connection-status ${status}`;
         const dot = DOM.connectionStatus.querySelector('.status-dot');
-        DOM.connectionText.textContent = s === 'connected' ? 'Connecté' : s === 'disconnected' ? 'Déconnecté' : 'Connexion...';
-        dot.classList.toggle('pulsing', s !== 'connected');
+        DOM.connectionText.textContent = status === 'connected' ? 'Connecté' : status === 'disconnected' ? 'Déconnecté' : 'Connexion...';
+        if (dot) dot.classList.toggle('pulsing', status !== 'connected');
     }
 
-    function formatTime(s) { return `${Math.floor(s/60)}:${(s%60).toString().padStart(2,'0')}`; }
+    function formatTime(seconds) {
+        const mins = Math.floor(seconds / 60);
+        const secs = seconds % 60;
+        return `${mins}:${secs.toString().padStart(2, '0')}`;
+    }
 
+    // ============================================================================
+    // WEBSOCKET
+    // ============================================================================
     function connectWebSocket() {
-        if (ws && ws.readyState === WebSocket.OPEN) return;
+        if (ws && ws.readyState === WebSocket.OPEN) {
+            debug('WebSocket déjà connecté');
+            return;
+        }
+        
         updateConnectionStatus('connecting');
         const protocol = location.protocol === 'https:' ? 'wss:' : 'ws:';
+        const wsUrl = `${protocol}//${location.host}/ws/room/${roomCode}`;
+        
+        debug('Connexion WebSocket à', wsUrl);
+        
         try {
-            ws = new WebSocket(`${protocol}//${location.host}/ws/room/${roomCode}`);
-            ws.onopen = () => { wsConnected = true; wsReconnectAttempts = 0; updateConnectionStatus('connected'); showToast('Connecté', 'success'); };
-            ws.onclose = (e) => { wsConnected = false; updateConnectionStatus('disconnected'); if (!e.wasClean && wsReconnectAttempts < CONFIG.WS_MAX_RECONNECT_ATTEMPTS) scheduleReconnect(); };
-            ws.onerror = () => updateConnectionStatus('disconnected');
-            ws.onmessage = (e) => { try { handleMessage(JSON.parse(e.data)); } catch(err) { console.error(err); } };
-        } catch(e) { scheduleReconnect(); }
+            ws = new WebSocket(wsUrl);
+            
+            ws.onopen = () => {
+                debug('✅ WebSocket connecté');
+                wsConnected = true;
+                wsReconnectAttempts = 0;
+                updateConnectionStatus('connected');
+                showToast('Connecté', 'success');
+            };
+            
+            ws.onclose = (event) => {
+                debug('❌ WebSocket fermé', event.code, event.reason);
+                wsConnected = false;
+                updateConnectionStatus('disconnected');
+                
+                if (!event.wasClean && wsReconnectAttempts < CONFIG.WS_MAX_RECONNECT_ATTEMPTS) {
+                    scheduleReconnect();
+                }
+            };
+            
+            ws.onerror = (error) => {
+                debug('❌ WebSocket erreur', error);
+                updateConnectionStatus('disconnected');
+            };
+            
+            ws.onmessage = (event) => {
+                try {
+                    const msg = JSON.parse(event.data);
+                    debug('📨 Message reçu:', msg.type, msg);
+                    handleMessage(msg);
+                } catch (err) {
+                    console.error('Erreur parsing message:', err, event.data);
+                }
+            };
+        } catch (e) {
+            console.error('Erreur création WebSocket:', e);
+            scheduleReconnect();
+        }
     }
 
     function scheduleReconnect() {
         if (wsReconnectTimer) clearTimeout(wsReconnectTimer);
-        wsReconnectAttempts++; const delay = Math.min(CONFIG.WS_RECONNECT_DELAY * wsReconnectAttempts, 10000);
-        updateConnectionStatus('connecting'); wsReconnectTimer = setTimeout(connectWebSocket, delay);
+        wsReconnectAttempts++;
+        const delay = Math.min(CONFIG.WS_RECONNECT_DELAY * wsReconnectAttempts, 10000);
+        debug(`Reconnexion dans ${delay}ms (tentative ${wsReconnectAttempts})`);
+        updateConnectionStatus('connecting');
+        wsReconnectTimer = setTimeout(connectWebSocket, delay);
     }
 
-    function sendWS(type, payload = {}) { if (!wsConnected || !ws || ws.readyState !== WebSocket.OPEN) return false; ws.send(JSON.stringify({type, payload})); return true; }
+    function sendWS(type, payload = {}) {
+        if (!wsConnected || !ws || ws.readyState !== WebSocket.OPEN) {
+            debug('❌ Impossible d\'envoyer, WS non connecté');
+            return false;
+        }
+        const msg = { type, payload };
+        debug('📤 Envoi:', msg);
+        ws.send(JSON.stringify(msg));
+        return true;
+    }
 
+    // ============================================================================
+    // GESTION DES MESSAGES
+    // ============================================================================
     function handleMessage(msg) {
-        console.log('[WS]', msg.type, msg);
-        const h = {
-            'player_joined': (d) => { showToast(`${d.pseudo} a rejoint`, 'info'); setTimeout(() => location.reload(), 500); },
-            'player_left': (d) => { showToast(`${d.pseudo} parti`, 'warning'); document.querySelector(`[data-user-id="${d.user_id}"]`)?.remove(); updateStartButton(); },
-            'player_ready': onPlayerReady, 'room_update': onRoomUpdate, 'game_start': onGameStart, 'new_round': onNewRound,
-            'time_update': onTimeUpdate, 'player_submitted': onPlayerSubmitted, 'round_stop': onRoundStop,
-            'voting_start': onVotingStart, 'vote_time_update': onVoteTimeUpdate, 'round_result': onRoundResult, 'game_end': onGameEnd,
-            'answers_submitted': () => showToast('Réponses OK', 'success'), 'votes_submitted': () => showToast('Votes OK', 'success'),
-            'error': (d) => showToast(d.message || msg.error || 'Erreur', 'error'), 'pong': () => {}
+        const handlers = {
+            'player_joined': handlePlayerJoined,
+            'player_left': handlePlayerLeft,
+            'player_ready': handlePlayerReady,
+            'room_update': handleRoomUpdate,
+            'game_start': handleGameStart,
+            'new_round': handleNewRound,
+            'time_update': handleTimeUpdate,
+            'player_submitted': handlePlayerSubmitted,
+            'round_stop': handleRoundStop,
+            'voting_start': handleVotingStart,
+            'vote_time_update': handleVoteTimeUpdate,
+            'round_result': handleRoundResult,
+            'game_end': handleGameEnd,
+            'answers_submitted': () => showToast('Réponses envoyées', 'success'),
+            'votes_submitted': () => showToast('Votes envoyés', 'success'),
+            'error': (data) => showToast(data.message || msg.error || 'Erreur', 'error'),
+            'pong': () => debug('Pong reçu')
         };
-        if (h[msg.type]) h[msg.type](msg.payload || msg);
+        
+        const handler = handlers[msg.type];
+        if (handler) {
+            handler(msg.payload || msg);
+        } else {
+            debug('⚠️ Message non géré:', msg.type);
+        }
     }
 
-    function onPlayerReady(d) {
-        const item = document.querySelector(`[data-user-id="${d.user_id}"]`);
+    function handlePlayerJoined(data) {
+        showToast(`${data.pseudo} a rejoint la partie`, 'info');
+        setTimeout(() => location.reload(), 500);
+    }
+
+    function handlePlayerLeft(data) {
+        showToast(`${data.pseudo} a quitté`, 'warning');
+        const playerEl = document.querySelector(`[data-user-id="${data.user_id}"]`);
+        if (playerEl) playerEl.remove();
+        updateStartButton();
+    }
+
+    function handlePlayerReady(data) {
+        debug('Player ready:', data);
+        const item = document.querySelector(`[data-user-id="${data.user_id}"]`);
         if (item) {
-            const st = item.querySelector('.player-status');
-            st.innerHTML = d.ready ? '<span style="color:var(--success)">✓ Prêt</span>' : '<span>En attente</span>';
-            item.classList.toggle('ready', d.ready);
+            const statusEl = item.querySelector('.player-status');
+            if (statusEl) {
+                statusEl.innerHTML = data.ready 
+                    ? '<span style="color:var(--success)">✓ Prêt</span>' 
+                    : '<span>En attente</span>';
+            }
+            item.classList.toggle('ready', data.ready);
         }
         updateStartButton();
     }
 
-    function onRoomUpdate(d) { if (d.status) updateGameState(d.status); }
+    function handleRoomUpdate(data) {
+        debug('Room update:', data);
+        if (data.status) {
+            updateGameState(data.status);
+        }
+    }
 
-    function onGameStart(d) {
+    function handleGameStart(data) {
+        debug('🎮 Game start:', data);
         showToast('Partie lancée !', 'success');
-        DOM.waitingState.classList.add('hidden'); DOM.playingState.classList.remove('hidden'); DOM.scoreboard.classList.remove('hidden');
+        DOM.waitingState.classList.add('hidden');
+        DOM.playingState.classList.remove('hidden');
+        DOM.scoreboard.classList.remove('hidden');
     }
 
-    function onNewRound(d) {
-        currentLetter = d.letter; hasSubmittedAnswers = hasSubmittedVotes = false;
-        DOM.currentRound.textContent = d.round; DOM.totalRounds.textContent = d.total || 9;
-        DOM.currentLetter.textContent = d.letter; DOM.timer.textContent = formatTime(d.duration || 60); DOM.timer.className = '';
-        DOM.answersForm.reset(); DOM.answersForm.classList.remove('hidden'); DOM.submittedMessage.classList.add('hidden');
-        DOM.answersPhase.classList.remove('hidden'); DOM.votingPhase.classList.add('hidden'); DOM.roundResult.classList.add('hidden');
-        DOM.submitAnswersBtn.disabled = DOM.stopBtn.disabled = false;
-        document.querySelectorAll('.category-item input').forEach(i => { i.classList.remove('valid','invalid'); i.disabled = false; });
-        document.querySelectorAll('.player-item').forEach(i => i.classList.remove('submitted'));
-        document.querySelector('input[name="artiste"]')?.focus();
+    function handleNewRound(data) {
+        debug('📝 New round:', data);
+        
+        // Extraire la lettre du payload - vérifier les différentes formes possibles
+        const letter = data.letter || data.Letter || '?';
+        const round = data.round || data.Round || 1;
+        const total = data.total || data.Total || 9;
+        const duration = data.duration || data.Duration || 60;
+        
+        debug('Lettre extraite:', letter, 'Round:', round, 'Total:', total);
+        
+        currentLetter = letter;
+        hasSubmittedAnswers = false;
+        hasSubmittedVotes = false;
+        
+        // Mettre à jour l'UI
+        if (DOM.currentRound) DOM.currentRound.textContent = round;
+        if (DOM.totalRounds) DOM.totalRounds.textContent = total;
+        if (DOM.currentLetter) {
+            DOM.currentLetter.textContent = letter;
+            debug('Lettre affichée dans DOM:', DOM.currentLetter.textContent);
+        }
+        if (DOM.timer) {
+            DOM.timer.textContent = formatTime(duration);
+            DOM.timer.className = '';
+        }
+        
+        // Réinitialiser le formulaire
+        if (DOM.answersForm) {
+            DOM.answersForm.reset();
+            DOM.answersForm.classList.remove('hidden');
+        }
+        if (DOM.submittedMessage) DOM.submittedMessage.classList.add('hidden');
+        if (DOM.answersPhase) DOM.answersPhase.classList.remove('hidden');
+        if (DOM.votingPhase) DOM.votingPhase.classList.add('hidden');
+        if (DOM.roundResult) DOM.roundResult.classList.add('hidden');
+        if (DOM.submitAnswersBtn) DOM.submitAnswersBtn.disabled = false;
+        if (DOM.stopBtn) DOM.stopBtn.disabled = false;
+        
+        // Réinitialiser les inputs
+        document.querySelectorAll('.category-item input').forEach(input => {
+            input.classList.remove('valid', 'invalid');
+            input.disabled = false;
+        });
+        
+        // Réinitialiser les indicateurs de joueurs
+        document.querySelectorAll('.player-item').forEach(item => {
+            item.classList.remove('submitted');
+        });
+        
+        // Focus sur le premier input
+        const firstInput = document.querySelector('input[name="artiste"]');
+        if (firstInput) firstInput.focus();
+        
+        // Configurer la validation
         setupInputValidation();
+        
+        showToast(`Manche ${round} - Lettre ${letter}`, 'info');
     }
 
-    function onTimeUpdate(d) {
-        DOM.timer.textContent = formatTime(d.time_left);
-        DOM.timer.className = d.time_left <= 5 ? 'danger' : d.time_left <= 15 ? 'warning' : '';
+    function handleTimeUpdate(data) {
+        const timeLeft = data.time_left;
+        if (DOM.timer) {
+            DOM.timer.textContent = formatTime(timeLeft);
+            DOM.timer.className = timeLeft <= 5 ? 'danger' : timeLeft <= 15 ? 'warning' : '';
+        }
     }
 
-    function onVoteTimeUpdate(d) { if (DOM.voteTimer) { DOM.voteTimer.textContent = formatTime(d.time_left); DOM.voteTimer.className = d.time_left <= 5 ? 'danger' : d.time_left <= 10 ? 'warning' : ''; } }
-    function onPlayerSubmitted(d) { document.querySelector(`[data-user-id="${d.user_id}"]`)?.classList.add('submitted'); showToast(`${d.pseudo} a fini`, 'info'); }
-    function onRoundStop(d) { showToast(`${d.stopped_by} STOP!`, 'warning'); DOM.timer.textContent = 'STOP!'; DOM.timer.className = 'danger'; if (!hasSubmittedAnswers) submitAnswers(new Event('submit')); }
+    function handleVoteTimeUpdate(data) {
+        if (DOM.voteTimer) {
+            DOM.voteTimer.textContent = formatTime(data.time_left);
+            DOM.voteTimer.className = data.time_left <= 5 ? 'danger' : data.time_left <= 10 ? 'warning' : '';
+        }
+    }
 
-    function onVotingStart(d) {
-        hasSubmittedVotes = false; currentVotes = {};
-        DOM.answersPhase.classList.add('hidden'); DOM.votingPhase.classList.remove('hidden');
-        if (DOM.voteTimer) { DOM.voteTimer.textContent = formatTime(d.duration || 30); DOM.voteTimer.className = ''; }
-        DOM.submitVotesBtn.disabled = false; DOM.submitVotesBtn.innerHTML = '<span class="icon icon-check icon-sm"></span><span>Valider</span>';
-        buildVotingUI(d.answers, d.categories);
+    function handlePlayerSubmitted(data) {
+        debug('Player submitted:', data);
+        const playerEl = document.querySelector(`[data-user-id="${data.user_id}"]`);
+        if (playerEl) {
+            playerEl.classList.add('submitted');
+        }
+        showToast(`${data.pseudo} a terminé`, 'info');
+    }
+
+    function handleRoundStop(data) {
+        debug('Round stop:', data);
+        showToast(`${data.stopped_by} a appuyé sur STOP!`, 'warning');
+        if (DOM.timer) {
+            DOM.timer.textContent = 'STOP!';
+            DOM.timer.className = 'danger';
+        }
+        // Soumettre automatiquement si pas encore fait
+        if (!hasSubmittedAnswers) {
+            submitAnswers(new Event('submit'));
+        }
+    }
+
+    function handleVotingStart(data) {
+        debug('🗳️ Voting start:', data);
+        hasSubmittedVotes = false;
+        currentVotes = {};
+        
+        if (DOM.answersPhase) DOM.answersPhase.classList.add('hidden');
+        if (DOM.votingPhase) DOM.votingPhase.classList.remove('hidden');
+        if (DOM.voteTimer) {
+            DOM.voteTimer.textContent = formatTime(data.duration || 30);
+            DOM.voteTimer.className = '';
+        }
+        if (DOM.submitVotesBtn) {
+            DOM.submitVotesBtn.disabled = false;
+            DOM.submitVotesBtn.innerHTML = '<span class="icon icon-check icon-sm"></span><span>Valider</span>';
+        }
+        
+        buildVotingUI(data.answers, data.categories);
     }
 
     function buildVotingUI(answers, categories) {
+        if (!DOM.votingCategories) return;
+        
         DOM.votingCategories.innerHTML = '';
-        const labels = { artiste: 'Artiste', album: 'Album', groupe: 'Groupe', instrument: 'Instrument', featuring: 'Featuring' };
-        (categories || Object.keys(labels)).forEach(cat => {
+        const labels = {
+            artiste: '🎤 Artiste',
+            album: '💿 Album',
+            groupe: '👥 Groupe',
+            instrument: '🎸 Instrument',
+            featuring: '🎵 Featuring'
+        };
+        
+        const categoryList = categories || Object.keys(labels);
+        
+        categoryList.forEach(cat => {
             const catAnswers = answers.filter(a => a.category === cat && a.answer?.trim());
             if (!catAnswers.length) return;
-            const div = document.createElement('div'); div.className = 'vote-item';
+            
+            const div = document.createElement('div');
+            div.className = 'vote-item';
             div.innerHTML = `<h4 style="margin-bottom:8px">${labels[cat] || cat}</h4>`;
-            catAnswers.forEach(a => {
-                const key = `${a.user_id}_${cat}`;
-                if (String(a.user_id) === String(userId)) {
-                    div.innerHTML += `<div class="vote-answer" style="opacity:0.6"><span><strong>${a.pseudo}:</strong> ${a.answer}</span><span class="text-muted">(vous)</span></div>`;
+            
+            catAnswers.forEach(answer => {
+                const key = `${answer.user_id}_${cat}`;
+                
+                if (String(answer.user_id) === String(userId)) {
+                    // C'est notre propre réponse
+                    div.innerHTML += `
+                        <div class="vote-answer" style="opacity:0.6">
+                            <span><strong>${answer.pseudo}:</strong> ${answer.answer}</span>
+                            <span class="text-muted">(vous)</span>
+                        </div>`;
                 } else {
-                    currentVotes[key] = true;
-                    div.innerHTML += `<div class="vote-answer"><span><strong>${a.pseudo}:</strong> ${a.answer}</span><div class="vote-buttons"><button type="button" class="vote-btn accept active" data-vote="${key}_accept" onclick="vote('${a.user_id}','${cat}',true)">✓</button><button type="button" class="vote-btn reject" data-vote="${key}_reject" onclick="vote('${a.user_id}','${cat}',false)">✗</button></div></div>`;
+                    // Réponse d'un autre joueur
+                    currentVotes[key] = true; // Par défaut: accepté
+                    div.innerHTML += `
+                        <div class="vote-answer">
+                            <span><strong>${answer.pseudo}:</strong> ${answer.answer}</span>
+                            <div class="vote-buttons">
+                                <button type="button" class="vote-btn accept active" data-vote="${key}_accept" onclick="vote('${answer.user_id}','${cat}',true)">✓</button>
+                                <button type="button" class="vote-btn reject" data-vote="${key}_reject" onclick="vote('${answer.user_id}','${cat}',false)">✗</button>
+                            </div>
+                        </div>`;
                 }
             });
+            
             DOM.votingCategories.appendChild(div);
         });
-        if (!DOM.votingCategories.children.length) DOM.votingCategories.innerHTML = '<p class="text-muted" style="text-align:center">Aucune réponse</p>';
+        
+        if (!DOM.votingCategories.children.length) {
+            DOM.votingCategories.innerHTML = '<p class="text-muted" style="text-align:center">Aucune réponse à valider</p>';
+        }
     }
 
-    function onRoundResult(d) {
-        DOM.votingPhase.classList.add('hidden'); DOM.roundResult.classList.remove('hidden');
-        DOM.roundScores.innerHTML = '';
-        (d.results || []).forEach(r => {
-            const div = document.createElement('div'); div.style.cssText = 'display:flex;justify-content:space-between;padding:8px 12px;background:rgba(255,255,255,0.05);border-radius:8px;margin-bottom:4px';
-            div.innerHTML = `<span>${r.pseudo}</span><span style="color:var(--success)">+${r.points} pts</span>`;
-            DOM.roundScores.appendChild(div);
-        });
-        if (d.scores) updateScores(d.scores);
-        DOM.nextRoundInfo.textContent = 'Prochaine manche...';
+    function handleRoundResult(data) {
+        debug('📊 Round result:', data);
+        
+        if (DOM.votingPhase) DOM.votingPhase.classList.add('hidden');
+        if (DOM.roundResult) DOM.roundResult.classList.remove('hidden');
+        
+        if (DOM.roundScores) {
+            DOM.roundScores.innerHTML = '';
+            (data.results || []).forEach(result => {
+                const div = document.createElement('div');
+                div.style.cssText = 'display:flex;justify-content:space-between;padding:8px 12px;background:rgba(255,255,255,0.05);border-radius:8px;margin-bottom:4px';
+                div.innerHTML = `<span>${result.pseudo}</span><span style="color:var(--success)">+${result.points} pts</span>`;
+                DOM.roundScores.appendChild(div);
+            });
+        }
+        
+        if (data.scores) {
+            updateScores(data.scores);
+        }
+        
+        if (DOM.nextRoundInfo) {
+            DOM.nextRoundInfo.textContent = 'Prochaine manche dans quelques secondes...';
+        }
     }
 
-    function onGameEnd(d) {
-        DOM.playingState.classList.add('hidden'); DOM.finishedState.classList.remove('hidden');
-        if (d.winner) { DOM.winnerName.textContent = d.winner.pseudo; DOM.winnerScore.textContent = `${d.winner.score} points`; }
-        DOM.finalRanking.innerHTML = '<h4 style="margin-bottom:1rem">Classement final</h4>';
-        const ol = document.createElement('ol'); ol.style.listStyle = 'none';
-        (d.rankings || []).forEach((p, i) => { const li = document.createElement('li'); li.style.cssText = 'display:flex;justify-content:space-between;padding:8px 12px;background:rgba(255,255,255,0.05);border-radius:8px;margin-bottom:4px'; li.innerHTML = `<span>${i+1}. ${p.pseudo}</span><span style="font-family:var(--font-mono)">${p.score} pts</span>`; ol.appendChild(li); });
-        DOM.finalRanking.appendChild(ol);
+    function handleGameEnd(data) {
+        debug('🏆 Game end:', data);
+        
+        if (DOM.playingState) DOM.playingState.classList.add('hidden');
+        if (DOM.finishedState) DOM.finishedState.classList.remove('hidden');
+        
+        if (data.winner && DOM.winnerName && DOM.winnerScore) {
+            DOM.winnerName.textContent = data.winner.pseudo;
+            DOM.winnerScore.textContent = `${data.winner.score} points`;
+        }
+        
+        if (DOM.finalRanking) {
+            DOM.finalRanking.innerHTML = '<h4 style="margin-bottom:1rem">Classement final</h4>';
+            const ol = document.createElement('ol');
+            ol.style.listStyle = 'none';
+            
+            (data.rankings || []).forEach((player, index) => {
+                const li = document.createElement('li');
+                li.style.cssText = 'display:flex;justify-content:space-between;padding:8px 12px;background:rgba(255,255,255,0.05);border-radius:8px;margin-bottom:4px';
+                li.innerHTML = `<span>${index + 1}. ${player.pseudo}</span><span style="font-family:var(--font-mono)">${player.score} pts</span>`;
+                ol.appendChild(li);
+            });
+            
+            DOM.finalRanking.appendChild(ol);
+        }
+        
         showToast('Partie terminée !', 'success', 5000);
     }
 
+    // ============================================================================
+    // FONCTIONS UI
+    // ============================================================================
     function updateScores(scores) {
-        if (!scores) return;
+        if (!scores || !DOM.scoreList) return;
+        
         DOM.scoreList.innerHTML = '';
-        let arr = Array.isArray(scores) ? scores : Object.entries(scores).map(([id, d]) => ({ user_id: id, pseudo: d.pseudo, score: d.score }));
-        arr.sort((a, b) => b.score - a.score);
-        arr.forEach(p => {
-            const li = document.createElement('li'); li.innerHTML = `<span style="flex:1">${p.pseudo}</span><span style="font-family:var(--font-mono);font-weight:600">${p.score}</span>`;
+        
+        // Convertir en tableau si nécessaire
+        let scoresArray = Array.isArray(scores) 
+            ? scores 
+            : Object.entries(scores).map(([id, data]) => ({
+                user_id: id,
+                pseudo: data.pseudo,
+                score: data.score
+            }));
+        
+        // Trier par score décroissant
+        scoresArray.sort((a, b) => b.score - a.score);
+        
+        scoresArray.forEach(player => {
+            const li = document.createElement('li');
+            li.innerHTML = `<span style="flex:1">${player.pseudo}</span><span style="font-family:var(--font-mono);font-weight:600">${player.score}</span>`;
             DOM.scoreList.appendChild(li);
-            const ps = document.querySelector(`[data-user-id="${p.user_id}"] .player-score`); if (ps) ps.textContent = p.score;
+            
+            // Mettre à jour le score dans la liste des joueurs
+            const playerScoreEl = document.querySelector(`[data-user-id="${player.user_id}"] .player-score`);
+            if (playerScoreEl) {
+                playerScoreEl.textContent = player.score;
+            }
         });
     }
 
-    function copyCode() { navigator.clipboard.writeText(roomCode).then(() => showToast('Code copié !', 'success')).catch(() => showToast('Erreur', 'error')); }
-    function toggleReady() { isReady = !isReady; sendWS('player_ready', { ready: isReady }); if (DOM.readyBtn) { DOM.readyBtn.classList.toggle('btn-primary', !isReady); DOM.readyBtn.classList.toggle('btn-warning', isReady); DOM.readyBtnText.textContent = isReady ? 'Annuler' : 'Je suis prêt'; } }
-    function startGame() { if (!isHost) return showToast('Seul l\'hôte peut lancer', 'warning'); sendWS('start_game', {}); }
-    function submitAnswers(e) { if (e) e.preventDefault(); if (hasSubmittedAnswers) return showToast('Déjà envoyées', 'info'); const fd = new FormData(DOM.answersForm); const a = {}; for (let [k,v] of fd.entries()) a[k] = v.trim(); sendWS('submit_answers', { answers: a }); hasSubmittedAnswers = true; DOM.answersForm.classList.add('hidden'); DOM.submittedMessage.classList.remove('hidden'); DOM.submitAnswersBtn.disabled = DOM.stopBtn.disabled = true; }
-    function stopRound() { sendWS('stop_round', {}); }
-    function vote(uid, cat, accept) { const k = `${uid}_${cat}`; currentVotes[k] = accept; document.querySelector(`[data-vote="${k}_accept"]`)?.classList.toggle('active', accept); document.querySelector(`[data-vote="${k}_reject"]`)?.classList.toggle('active', !accept); }
-    function submitVotes() { if (hasSubmittedVotes) return showToast('Déjà envoyés', 'info'); sendWS('submit_votes', { votes: currentVotes }); hasSubmittedVotes = true; DOM.submitVotesBtn.disabled = true; DOM.submitVotesBtn.innerHTML = '✓ Envoyés'; }
-    function restartGame() { fetch(`/api/rooms/${roomCode}/restart`, { method: 'POST', credentials: 'same-origin' }).then(r => r.json()).then(d => { if (d.success) { showToast('Relancée !', 'success'); setTimeout(() => location.reload(), 1000); } else showToast(d.message || 'Erreur', 'error'); }).catch(() => showToast('Erreur', 'error')); }
-    function leaveRoom(e) { if (e) e.preventDefault(); if (confirm('Quitter ?')) { sendWS('leave_room', {}); location.href = '/rooms'; } }
-    function updateStartButton() { if (!isHost || !DOM.startBtn) return; const ready = document.querySelectorAll('.player-item.ready').length, total = document.querySelectorAll('.player-item').length; const can = total === 1 || ready >= total - 1; DOM.startBtn.disabled = !can; if (DOM.startHint) DOM.startHint.textContent = total === 1 ? 'Mode solo' : can ? 'Tous prêts !' : `Attente de ${total - 1 - ready} joueur(s)...`; }
-    function updateGameState(s) { DOM.waitingState.classList.toggle('hidden', s !== 'waiting'); DOM.playingState.classList.toggle('hidden', s !== 'playing'); DOM.finishedState.classList.toggle('hidden', s !== 'finished'); if (s !== 'waiting') DOM.scoreboard.classList.remove('hidden'); }
-    function setupInputValidation() { document.querySelectorAll('.category-item input').forEach(i => { i.addEventListener('input', function() { const v = this.value.trim(); this.classList.remove('valid', 'invalid'); if (v.length && v[0].toUpperCase() === currentLetter) this.classList.add('valid'); else if (v.length) this.classList.add('invalid'); }); }); }
+    function updateStartButton() {
+        if (!isHost || !DOM.startBtn) return;
+        
+        const readyCount = document.querySelectorAll('.player-item.ready').length;
+        const totalCount = document.querySelectorAll('.player-item').length;
+        const canStart = totalCount === 1 || readyCount >= totalCount - 1;
+        
+        DOM.startBtn.disabled = !canStart;
+        
+        if (DOM.startHint) {
+            if (totalCount === 1) {
+                DOM.startHint.textContent = 'Mode solo disponible';
+            } else if (canStart) {
+                DOM.startHint.textContent = 'Tous les joueurs sont prêts !';
+            } else {
+                DOM.startHint.textContent = `En attente de ${totalCount - 1 - readyCount} joueur(s)...`;
+            }
+        }
+    }
 
-    document.addEventListener('DOMContentLoaded', () => { initDOM(); connectWebSocket(); if (isHost) updateStartButton(); setInterval(() => { if (wsConnected) sendWS('ping', {}); }, 30000); });
-    window.addEventListener('beforeunload', () => { if (ws) ws.close(1000, 'Page fermée'); });
+    function updateGameState(status) {
+        if (DOM.waitingState) DOM.waitingState.classList.toggle('hidden', status !== 'waiting');
+        if (DOM.playingState) DOM.playingState.classList.toggle('hidden', status !== 'playing');
+        if (DOM.finishedState) DOM.finishedState.classList.toggle('hidden', status !== 'finished');
+        if (status !== 'waiting' && DOM.scoreboard) {
+            DOM.scoreboard.classList.remove('hidden');
+        }
+    }
+
+    function setupInputValidation() {
+        document.querySelectorAll('.category-item input').forEach(input => {
+            input.addEventListener('input', function() {
+                const value = this.value.trim();
+                this.classList.remove('valid', 'invalid');
+                
+                if (value.length > 0) {
+                    if (value[0].toUpperCase() === currentLetter) {
+                        this.classList.add('valid');
+                    } else {
+                        this.classList.add('invalid');
+                    }
+                }
+            });
+        });
+    }
+
+    // ============================================================================
+    // ACTIONS UTILISATEUR
+    // ============================================================================
+    function copyCode() {
+        navigator.clipboard.writeText(roomCode)
+            .then(() => showToast('Code copié !', 'success'))
+            .catch(() => showToast('Erreur de copie', 'error'));
+    }
+
+    function toggleReady() {
+        isReady = !isReady;
+        sendWS('player_ready', { ready: isReady });
+        
+        if (DOM.readyBtn) {
+            DOM.readyBtn.classList.toggle('btn-primary', !isReady);
+            DOM.readyBtn.classList.toggle('btn-warning', isReady);
+        }
+        if (DOM.readyBtnText) {
+            DOM.readyBtnText.textContent = isReady ? 'Annuler' : 'Je suis prêt';
+        }
+    }
+
+    function startGame() {
+        if (!isHost) {
+            showToast('Seul l\'hôte peut lancer la partie', 'warning');
+            return;
+        }
+        debug('🎮 Envoi start_game');
+        sendWS('start_game', {});
+    }
+
+    function submitAnswers(event) {
+        if (event) event.preventDefault();
+        
+        if (hasSubmittedAnswers) {
+            showToast('Réponses déjà envoyées', 'info');
+            return;
+        }
+        
+        const formData = new FormData(DOM.answersForm);
+        const answers = {};
+        for (let [key, value] of formData.entries()) {
+            answers[key] = value.trim();
+        }
+        
+        debug('📝 Soumission des réponses:', answers);
+        sendWS('submit_answers', { answers });
+        
+        hasSubmittedAnswers = true;
+        
+        if (DOM.answersForm) DOM.answersForm.classList.add('hidden');
+        if (DOM.submittedMessage) DOM.submittedMessage.classList.remove('hidden');
+        if (DOM.submitAnswersBtn) DOM.submitAnswersBtn.disabled = true;
+        if (DOM.stopBtn) DOM.stopBtn.disabled = true;
+    }
+
+    function stopRound() {
+        debug('🛑 STOP!');
+        sendWS('stop_round', {});
+    }
+
+    function vote(userId, category, accept) {
+        const key = `${userId}_${category}`;
+        currentVotes[key] = accept;
+        
+        // Mettre à jour l'UI
+        const acceptBtn = document.querySelector(`[data-vote="${key}_accept"]`);
+        const rejectBtn = document.querySelector(`[data-vote="${key}_reject"]`);
+        
+        if (acceptBtn) acceptBtn.classList.toggle('active', accept);
+        if (rejectBtn) rejectBtn.classList.toggle('active', !accept);
+    }
+
+    function submitVotes() {
+        if (hasSubmittedVotes) {
+            showToast('Votes déjà envoyés', 'info');
+            return;
+        }
+        
+        debug('🗳️ Soumission des votes:', currentVotes);
+        sendWS('submit_votes', { votes: currentVotes });
+        
+        hasSubmittedVotes = true;
+        
+        if (DOM.submitVotesBtn) {
+            DOM.submitVotesBtn.disabled = true;
+            DOM.submitVotesBtn.innerHTML = '✓ Votes envoyés';
+        }
+    }
+
+    function restartGame() {
+        fetch(`/api/rooms/${roomCode}/restart`, {
+            method: 'POST',
+            credentials: 'same-origin'
+        })
+        .then(r => r.json())
+        .then(data => {
+            if (data.success) {
+                showToast('Partie relancée !', 'success');
+                setTimeout(() => location.reload(), 1000);
+            } else {
+                showToast(data.message || 'Erreur', 'error');
+            }
+        })
+        .catch(() => showToast('Erreur réseau', 'error'));
+    }
+
+    function leaveRoom(event) {
+        if (event) event.preventDefault();
+        if (confirm('Voulez-vous vraiment quitter la partie ?')) {
+            sendWS('leave_room', {});
+            location.href = '/rooms';
+        }
+    }
+
+    // ============================================================================
+    // INITIALISATION
+    // ============================================================================
+    document.addEventListener('DOMContentLoaded', () => {
+        debug('🚀 Initialisation...');
+        initDOM();
+        connectWebSocket();
+        
+        if (isHost) {
+            updateStartButton();
+        }
+        
+        // Ping périodique pour maintenir la connexion
+        setInterval(() => {
+            if (wsConnected) {
+                sendWS('ping', {});
+            }
+        }, 30000);
+    });
+
+    window.addEventListener('beforeunload', () => {
+        if (ws) {
+            ws.close(1000, 'Page fermée');
+        }
+    });
     </script>
 </body>
 </html>
